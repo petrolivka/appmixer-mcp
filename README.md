@@ -146,6 +146,8 @@ You can either set the `APPMIXER_ACCESS_TOKEN` environment variable or use your 
 ### API Tools
 
 - **get-flows**
+  - Parameters:
+   - `pattern` (string): Pattern to filter flows by name.
 - **get-flow**
   - Parameters:
     - `id` (string): Flow ID
@@ -163,7 +165,12 @@ You can either set the `APPMIXER_ACCESS_TOKEN` environment variable or use your 
     - `id` (string): Flow ID
     - `componentId` (string): Component ID
     - `method` (string): HTTP method
-    - `body` (string): JSON string that will be sent as the body of the HTTP call to the component.
+    - `body` (string): JSON string that will be sent as the body of the HTTP 
+    call to the component.
+- **send-app-event**
+  - Parameters:
+    - `event` (string): App Event name
+    - `data` (string): JSON string that will be sent as the event data.
 - **get-flow-logs**
   - Parameters:
     - `id` (string): Flow ID
