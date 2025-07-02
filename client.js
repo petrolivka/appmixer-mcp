@@ -73,9 +73,15 @@ export class AppmixerClient {
     }
   }
   
-  async getFlows() {
+  async getFlows(options = {}) {
+    const params = new URLSearchParams;
+    if (options.pattern) {
+      params.append('pattern', options.pattern);
+    }
+    params.append('sort', 'mtime:-1');
+    params.append('projection', '-thumbnail');
     try {
-      return this.request(`${this.baseUrl}/flows`);
+      return this.request(`${this.baseUrl}/flows?${params.toString()}`);
     } catch (e) {
       console.error(e);
     }
@@ -121,6 +127,15 @@ export class AppmixerClient {
     try {
       const requestBody = body ? JSON.parse(body) : {};
       return this.request(`${this.baseUrl}/flows/${flowId}/components/${componentId}`, method, requestBody);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async sendAppEvent(event, data) {
+    try {
+      const body = data ? JSON.parse(data) : {};
+      return this.request(`${this.baseUrl}/plugins/appmixer/utils/appevents/events/${event}`, 'POST', body);
     } catch (e) {
       console.error(e);
     }

@@ -36,12 +36,15 @@ const API_TOOLS = [{
     annotations: {
         title: 'Get Flows'
     },
-    description: 'List Appmixer flows.',
+    description: 'Find Appmixer flows optionally filtered by a pattern. If no pattern is provided, last 100 flows are returned.',
     inputSchema: {
-        type: 'object'
+        type: 'object',
+        properties: {
+            pattern: { type: 'string', description: 'Optional pattern to filter flow names.' }
+        },
     },
-    handler: async () => {
-        const flows = await client.getFlows();
+    handler: async (args) => {
+        const flows = await client.getFlows(args);
         const formattedFlows = flows.map(flow => `ID: ${flow.flowId}; Name: (${flow.name})`).join('\n');
         return {
             content: [{ type: 'text', text: formattedFlows }],
@@ -141,6 +144,23 @@ const API_TOOLS = [{
         const result = await client.triggerComponent(args.id, args.componentId, args.method, args.body);
         return {
             content: [{ type: "text", text: result ? JSON.stringify(result, null, 2) : 'Component triggered successfully.' }]
+        };
+    }
+}, {
+    name: 'send-app-event',
+    description: 'Send an App Event to Appmixer flows.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            event: { type: 'string', description: 'The name of the event.' },
+            data: { type: 'string', description: 'The data (a JSON string) of the event to send to Appmixer flows.' }
+        },
+        required: ['event']
+    },
+    handler: async (args) => {
+        const result = await client.sendAppEvent(args.event, args.data);
+        return {
+            content: [{ type: "text", text: result ? JSON.stringify(result, null, 2) : 'App event sent successfully.' }]
         };
     }
 }, {
