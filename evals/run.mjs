@@ -1,0 +1,227 @@
+// LLM eval runner: measures how well an LLM agent builds Appmixer flows
+// through this MCP server, task by task. For each task it spawns
+// `claude -p` with the server mounted via --mcp-config, then scores the
+// created flow objectively via the Appmixer API (existence, validity,
+// expected components, first-try validity, tool-call efficiency).
+//
+// Requires: APPMIXER_* env vars, the `claude` CLI on PATH, `npm run build`.
+// Usage:    node evals/run.mjs [--model sonnet] [--only task-id] [--keep]
+import { spawn } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, '..');
+const args = process.argv.slice(2);
+const flag = (name) => {
+    const index = args.indexOf(name);
+    return index === -1 ? undefined : args[index + 1];
+};
+const MODEL = flag('--model') || 'sonnet';
+const ONLY = flag('--only');
+const KEEP = args.includes('--keep');
+const TASK_TIMEOUT_MS = 10 * 60 * 1000;
+
+const BASE = process.env.APPMIXER_BASE_URL;
+if (!BASE) { console.error('APPMIXER_BASE_URL not set.'); process.exit(1); }
+
+// ---- Appmixer API helpers (scoring side) -----------------------------------
+
+let token;
+async function api(path, method = 'GET', body) {
+    if (!token) {
+        const auth = await fetch(`${BASE}/user/auth`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: process.env.APPMIXER_USERNAME,
+                password: process.env.APPMIXER_PASSWORD
+            })
+        });
+        if (!auth.ok) throw new Error(`Tenant auth failed: ${auth.status}`);
+        token = (await auth.json()).token;
+    }
+    const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : undefined };
+}
+
+// ---- Agent invocation -------------------------------------------------------
+
+const mcpConfigPath = join(tmpdir(), `appmixer-mcp-eval-${Date.now()}.json`);
+writeFileSync(mcpConfigPath, JSON.stringify({
+    mcpServers: {
+        appmixer: {
+            command: process.execPath,
+            args: [join(root, 'dist', 'index.js')],
+            env: {
+                APPMIXER_BASE_URL: BASE,
+                APPMIXER_USERNAME: process.env.APPMIXER_USERNAME || '',
+                APPMIXER_PASSWORD: process.env.APPMIXER_PASSWORD || '',
+                APPMIXER_ACCESS_TOKEN: process.env.APPMIXER_ACCESS_TOKEN || '',
+                TOOLS: 'api'
+            }
+        }
+    }
+}));
+
+function runAgent(prompt) {
+    return new Promise((resolvePromise) => {
+        // The prompt goes through stdin: with shell:true (needed for claude.cmd
+        // on Windows), prompt text in argv would be mangled by shell quoting.
+        const child = spawn('claude', [
+            '-p',
+            '--model', MODEL,
+            '--mcp-config', mcpConfigPath,
+            '--strict-mcp-config',
+            '--allowedTools', 'mcp__appmixer', 'mcp__appmixer__*',
+            '--max-turns', '40',
+            '--output-format', 'stream-json',
+            '--verbose'
+        ], { shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+        child.stdin.write(prompt);
+        child.stdin.end();
+
+        const toolCalls = {};
+        let resultEvent = null;
+        let stderr = '';
+        let buffer = '';
+        const timer = setTimeout(() => child.kill(), TASK_TIMEOUT_MS);
+
+        child.stdout.on('data', chunk => {
+            buffer += chunk.toString();
+            let nl;
+            while ((nl = buffer.indexOf('\n')) !== -1) {
+                const line = buffer.slice(0, nl).trim();
+                buffer = buffer.slice(nl + 1);
+                if (!line) continue;
+                let event;
+                try { event = JSON.parse(line); } catch { continue; }
+                if (event.type === 'assistant') {
+                    for (const block of event.message?.content || []) {
+                        if (block.type === 'tool_use') {
+                            const name = block.name.replace(/^mcp__appmixer__/, '');
+                            toolCalls[name] = (toolCalls[name] || 0) + 1;
+                        }
+                    }
+                } else if (event.type === 'result') {
+                    resultEvent = event;
+                }
+            }
+        });
+        child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+        child.on('close', () => {
+            clearTimeout(timer);
+            resolvePromise({ toolCalls, resultEvent, stderr });
+        });
+    });
+}
+
+// ---- Scoring ----------------------------------------------------------------
+
+async function scoreTask(task, marker, agent) {
+    const score = {
+        id: task.id, created: false, valid: false, validFirstTry: false,
+        componentsOk: false, extraChecksOk: true, toolCalls: agent.toolCalls,
+        totalToolCalls: Object.values(agent.toolCalls).reduce((a, b) => a + b, 0),
+        turns: agent.resultEvent?.num_turns,
+        costUsd: agent.resultEvent?.total_cost_usd,
+        flowId: null, notes: []
+    };
+
+    const { body: flows } = await api(`/flows?pattern=${encodeURIComponent(marker)}&projection=-thumbnail`);
+    const flow = Array.isArray(flows) ? flows.find(f => f.name?.includes(marker)) : undefined;
+    if (!flow) { score.notes.push('Flow not found by marker name.'); return score; }
+    score.created = true;
+    score.flowId = flow.flowId;
+
+    const { body: full } = await api(`/flows/${flow.flowId}`);
+    const descriptor = full?.flow || {};
+    const descriptorJson = JSON.stringify(descriptor);
+    const types = Object.values(descriptor).map(c => c.type || '');
+
+    const { body: validation } = await api(`/flows/${flow.flowId}/validate`);
+    score.valid = (validation?.errors || []).length === 0;
+    if (!score.valid) score.notes.push(`Validation errors: ${JSON.stringify(validation.errors).slice(0, 300)}`);
+    score.validFirstTry = score.valid && !(agent.toolCalls.update_flow > 0);
+
+    const missing = (task.expectComponents || []).filter(want => !types.some(t => t.includes(want)));
+    const anyOk = !task.expectAnyComponent
+        || task.expectAnyComponent.some(want => types.some(t => t.includes(want)));
+    score.componentsOk = missing.length === 0 && anyOk
+        && (!task.minComponents || types.length >= task.minComponents);
+    if (missing.length) score.notes.push(`Missing components: ${missing.join(', ')}`);
+    if (!anyOk) score.notes.push(`None of ${task.expectAnyComponent.join('/')} present.`);
+
+    for (const needle of task.expectDescriptorIncludes || []) {
+        if (!descriptorJson.includes(needle)) {
+            score.extraChecksOk = false;
+            score.notes.push(`Descriptor missing "${needle}".`);
+        }
+    }
+    if (task.minPlaceholders) {
+        const count = (descriptorJson.match(/\{\{\{[0-9a-f-]{36}\}\}\}/g) || []).length;
+        if (count < task.minPlaceholders) {
+            score.extraChecksOk = false;
+            score.notes.push(`Only ${count} placeholders, expected >= ${task.minPlaceholders}.`);
+        }
+    }
+
+    if (!KEEP) await api(`/flows/${flow.flowId}`, 'DELETE');
+    return score;
+}
+
+// ---- Main -------------------------------------------------------------------
+
+const tasks = JSON.parse(readFileSync(join(here, 'tasks.json'), 'utf8'))
+    .filter(task => !ONLY || task.id === ONLY);
+
+console.log(`Running ${tasks.length} eval task(s) with model "${MODEL}"...\n`);
+const results = [];
+
+for (const task of tasks) {
+    const marker = `eval-${task.id}-${Date.now()}`;
+    const prompt = `${task.prompt}\n\nUse the Appmixer MCP tools. Name the flow exactly "${marker}". ` +
+        'Create the flow and make sure it passes validation. Do NOT start the flow. ' +
+        'When finished, reply with only the flow ID.';
+    process.stdout.write(`- ${task.id} ... `);
+    const started = Date.now();
+    const agent = await runAgent(prompt);
+    const score = await scoreTask(task, marker, agent);
+    score.durationS = Math.round((Date.now() - started) / 1000);
+    const pass = score.created && score.valid && score.componentsOk && score.extraChecksOk;
+    score.pass = pass;
+    console.log(`${pass ? 'PASS' : 'FAIL'} (valid=${score.valid}, firstTry=${score.validFirstTry}, ` +
+        `toolCalls=${score.totalToolCalls}, ${score.durationS}s${score.costUsd ? `, $${score.costUsd.toFixed(2)}` : ''})`);
+    for (const note of score.notes) console.log(`    ! ${note}`);
+    results.push(score);
+}
+
+const summary = {
+    model: MODEL,
+    date: new Date().toISOString(),
+    tasks: results.length,
+    passed: results.filter(r => r.pass).length,
+    valid: results.filter(r => r.valid).length,
+    validFirstTry: results.filter(r => r.validFirstTry).length,
+    avgToolCalls: Math.round(results.reduce((a, r) => a + r.totalToolCalls, 0) / results.length * 10) / 10,
+    totalCostUsd: Math.round(results.reduce((a, r) => a + (r.costUsd || 0), 0) * 100) / 100,
+    results
+};
+
+mkdirSync(join(here, 'results'), { recursive: true });
+const outPath = join(here, 'results', `${summary.date.replace(/[:.]/g, '-')}-${MODEL}.json`);
+writeFileSync(outPath, JSON.stringify(summary, null, 2));
+
+console.log(`\n=== EVAL SUMMARY (${MODEL}) ===`);
+console.log(`pass:          ${summary.passed}/${summary.tasks}`);
+console.log(`valid:         ${summary.valid}/${summary.tasks}`);
+console.log(`valid 1st try: ${summary.validFirstTry}/${summary.tasks}`);
+console.log(`avg toolcalls: ${summary.avgToolCalls}`);
+console.log(`total cost:    $${summary.totalCostUsd}`);
+console.log(`saved:         ${outPath}`);

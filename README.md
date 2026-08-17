@@ -151,6 +151,25 @@ APPMIXER_BASE_URL=... APPMIXER_USERNAME=... APPMIXER_PASSWORD=... node test/e2e-
 npm run gen:guide
 ```
 
+### LLM evals
+
+`evals/` contains an agent-level benchmark: each task in `evals/tasks.json` asks
+an LLM (via the `claude` CLI with this server mounted over `--mcp-config`) to
+build a flow from a natural-language brief. The runner scores the result
+objectively through the Appmixer API — flow created, passes validation,
+expected components present, valid on the first try, tool-call count and cost —
+and writes a JSON report to `evals/results/`.
+
+```bash
+node evals/run.mjs                 # all tasks (costs real LLM tokens!)
+node evals/run.mjs --model haiku   # different model
+node evals/run.mjs --only condition-branching --keep
+```
+
+Run it before releases or after changing the authoring guide, tool descriptions
+or output formats — it is the regression test for the parts of this server that
+unit tests cannot cover.
+
 ## License
 
 [MIT](LICENSE)
