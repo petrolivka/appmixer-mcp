@@ -47,9 +47,15 @@ async function validationSummary(client: AppmixerClient, flowId: string): Promis
     try {
         const result = await client.validateFlow(flowId);
         const errors = result?.errors || [];
-        return errors.length === 0
-            ? { valid: true }
-            : { valid: false, errors, hint: 'Fix the reported errors with update_flow, then run validate_flow again.' };
+        if (errors.length === 0) return { valid: true };
+        const hints = ['Fix the reported errors with update_flow, then run validate_flow again.'];
+        if (JSON.stringify(errors).includes('contains invalid variable')) {
+            hints.push('"contains invalid variable" means a modifier\'s variable path does not ' +
+                'exist in the upstream output — often a missing wrapper object (e.g. OnAppEvent ' +
+                'nests the payload under "data": $.<uuid>.out.data.<field>). Call ' +
+                'get_flow_variables and copy the exact reported path.');
+        }
+        return { valid: false, errors, hint: hints.join(' ') };
     } catch (err) {
         return { valid: undefined, note: 'Validation could not be performed.', detail: String(err) };
     }

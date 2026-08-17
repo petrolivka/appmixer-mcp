@@ -20,7 +20,7 @@ const flag = (name) => {
     return index === -1 ? undefined : args[index + 1];
 };
 const MODEL = flag('--model') || 'sonnet';
-const ONLY = flag('--only');
+const ONLY = flag('--only'); // Single id or comma-separated list.
 const KEEP = args.includes('--keep');
 const TASK_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -88,6 +88,8 @@ function runAgent(prompt) {
         child.stdin.end();
 
         const toolCalls = {};
+        const trace = [];               // Ordered tool calls with inputs + result excerpts.
+        const pendingById = new Map();  // tool_use_id -> trace entry.
         let resultEvent = null;
         let stderr = '';
         let buffer = '';
@@ -107,6 +109,21 @@ function runAgent(prompt) {
                         if (block.type === 'tool_use') {
                             const name = block.name.replace(/^mcp__appmixer__/, '');
                             toolCalls[name] = (toolCalls[name] || 0) + 1;
+                            const entry = {
+                                tool: name,
+                                input: JSON.stringify(block.input).slice(0, 2000)
+                            };
+                            trace.push(entry);
+                            pendingById.set(block.id, entry);
+                        }
+                    }
+                } else if (event.type === 'user') {
+                    for (const block of event.message?.content || []) {
+                        if (block.type === 'tool_result' && pendingById.has(block.tool_use_id)) {
+                            const text = (Array.isArray(block.content)
+                                ? block.content.map(c => c.text || '').join('')
+                                : String(block.content ?? ''));
+                            pendingById.get(block.tool_use_id).result = text.slice(0, 2000);
                         }
                     }
                 } else if (event.type === 'result') {
@@ -117,7 +134,7 @@ function runAgent(prompt) {
         child.stderr.on('data', chunk => { stderr += chunk.toString(); });
         child.on('close', () => {
             clearTimeout(timer);
-            resolvePromise({ toolCalls, resultEvent, stderr });
+            resolvePromise({ toolCalls, trace, resultEvent, stderr });
         });
     });
 }
@@ -179,7 +196,7 @@ async function scoreTask(task, marker, agent) {
 // ---- Main -------------------------------------------------------------------
 
 const tasks = JSON.parse(readFileSync(join(here, 'tasks.json'), 'utf8'))
-    .filter(task => !ONLY || task.id === ONLY);
+    .filter(task => !ONLY || ONLY.split(',').includes(task.id));
 
 console.log(`Running ${tasks.length} eval task(s) with model "${MODEL}"...\n`);
 const results = [];
@@ -193,6 +210,7 @@ for (const task of tasks) {
     const started = Date.now();
     const agent = await runAgent(prompt);
     const score = await scoreTask(task, marker, agent);
+    score.trace = agent.trace;
     score.durationS = Math.round((Date.now() - started) / 1000);
     const pass = score.created && score.valid && score.componentsOk && score.extraChecksOk;
     score.pass = pass;

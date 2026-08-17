@@ -169,7 +169,7 @@ describe('authoring tools', () => {
         const text = firstText(result);
         expect(text).toContain('"path": "$.trigger-1.out.data"');
         expect(text).toContain('"availableTo": "action-1"');
-        expect(text).toContain('"msg"');
+        expect(text).toContain('$.trigger-1.out.data.msg (string)'); // Schema expanded to leaf paths.
         expect(text).not.toContain('"path": "{{{'); // Paths are unwrapped from placeholders.
     });
 

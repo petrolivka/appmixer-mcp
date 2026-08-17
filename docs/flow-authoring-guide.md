@@ -135,6 +135,13 @@ Critical rules:
 - **No numeric array indexing in variable paths**: neither `$.x.out.items.0.id` nor `$.x.out.items[0].id` resolves. Reference the array path itself and use a modifier function (`g_jsonPath` with `"$[0].id"`, or `g_first` / `g_last`).
 - An **array** path cannot be dotted into directly; an **object** path only as-is when the field expects an object — otherwise reference the specific leaf.
 - Use only output variable paths confirmed by the discovery tools; never guess field names.
+- **The path root often includes a wrapper object — check it.** The single most common
+  mistake: `appmixer.utils.appevents.OnAppEvent` nests the event payload under `data`,
+  so with `eventDataExample` `{"msg": "hi"}` the correct path is
+  `$.<trigger-uuid>.out.data.msg` — NOT `$.<trigger-uuid>.out.msg`. Other components have
+  similar wrappers (e.g. HTTP actions expose `$.…​.response.body.…`). When in doubt, create
+  the flow first and call `get_flow_variables` — it returns the exact valid paths with all
+  leaf fields; then fill in the transforms.
 
 ### 3d. Modifier functions
 
@@ -211,6 +218,10 @@ With `"onError": "errorPort"`, wire a handler to the failing component's `error`
 8. **`config.transform` not mirroring `source`** — the same upstream UUID and port name must appear in both.
 9. **Missing required inPort fields in `lambda`**; **trigger with a non-empty `source`**; **references to UUIDs not present in the flow**; **transform type other than `json2new`**.
 10. **Extra keys on the component descriptor** — `additionalProperties: false` rejects anything beyond the keys in section 1.
+11. **Wrong path root — "Input field … contains invalid variable"**: the referenced field
+   is not at that position in the upstream output. Typically a missing wrapper object
+   (OnAppEvent: `$.uuid.out.data.field`, not `$.uuid.out.field`). Fix by calling
+   `get_flow_variables` and copying the exact `path` it reports.
 
 ## 7. Complete Minimal Example
 
@@ -269,7 +280,7 @@ Note: the transform mirrors the source (`in` → trigger UUID → `out`), the va
 
 ## 8. Useful Utility Components
 
-Triggers: `appmixer.utils.controls.OnStart` (fires once on flow start, port `out`), `appmixer.utils.timers.Timer` (`interval` minutes, port `out`), `appmixer.utils.timers.Scheduler` (cron fields, port `out`), `appmixer.utils.http.WebhookTrigger` (port `request`: method, data, query, headers), `appmixer.utils.appevents.OnAppEvent`.
+Triggers: `appmixer.utils.controls.OnStart` (fires once on flow start, port `out`), `appmixer.utils.timers.Timer` (`interval` minutes, port `out`), `appmixer.utils.timers.Scheduler` (cron fields, port `out`), `appmixer.utils.http.WebhookTrigger` (port `request`: method, data, query, headers), `appmixer.utils.appevents.OnAppEvent` (port `out`; the event payload is nested under `data` — paths are `$.<uuid>.out.data.<field>` per the `eventDataExample` properties).
 
 Actions/control: `appmixer.utils.http.Get/Post/Put/Patch/Delete` (port `response`), `appmixer.utils.http.Response` (respond to a webhook), `appmixer.utils.controls.Condition`, `appmixer.utils.controls.Each` (ports `item`, `done`), `appmixer.utils.controls.SetVariable`, `appmixer.utils.storage.Set/Get`, filters like `appmixer.utils.filters.GreaterThan` (ports `greater`/`notGreater`) and `appmixer.utils.filters.Equal` (ports `equal`/`notEqual`), `appmixer.utils.email.SendEmail`.
 
@@ -280,5 +291,9 @@ Filters only pass/block messages — downstream variable references should point
 1. **Discover** — list available apps (`list_apps`) and inspect candidate components (`get_components`) to get exact component types, inPort/outPort names, config properties, input fields (and which are required), and output variables. Never guess any of these.
 2. **Build** — assemble the descriptor: one trigger with `"source": {}`, actions wired via `source`, transforms mirroring `source`, fresh UUIDs everywhere.
 3. **Create** the flow via the create-flow tool (`POST /flows`).
-4. **Validate** — call `validate_flow`; fix every reported error (wrong port names, missing required fields, bad variable paths) and re-validate until clean.
-5. **Start** — call `start_flow`. If start fails with a transformation error, re-check inPort key names and transform structure against section 6.
+4. **Verify variable paths** — call `get_flow_variables` and check that every modifier
+   `variable` path exactly matches a reported path (watch for wrapper objects like
+   OnAppEvent's `data`). This catches the most common validation failure before it happens.
+5. **Validate** — call `validate_flow`; fix every reported error (wrong port names, missing required fields, bad variable paths) and re-validate until clean.
+6. **Dry-run** (optional but recommended) — `test_flow` with sample input on the first action verifies the transforms end to end without starting the flow.
+7. **Start** — call `start_flow`. If start fails with a transformation error, re-check inPort key names and transform structure against section 6.
