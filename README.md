@@ -38,6 +38,32 @@ claude mcp add appmixer npx appmixer-mcp \
   -e APPMIXER_ACCESS_TOKEN="..."
 ```
 
+## Remote server (streamable HTTP)
+
+Besides stdio, the same server runs as a remote MCP endpoint:
+
+```bash
+npx appmixer-mcp-http     # or: docker compose -f docker-compose.example.yml up -d
+```
+
+Two auth modes (`MCP_AUTH_MODE`, auto-detected by default):
+
+- **`env`** — the server uses `APPMIXER_*` credentials from its environment and
+  serves that single user to every caller. For personal/team self-hosting only;
+  never expose publicly.
+- **`bearer`** — every MCP client sends its own Appmixer access token:
+  `Authorization: Bearer <token>`. Multi-user; sessions are bound to the token.
+  Example: `claude mcp add --transport http appmixer https://your-host/mcp --header "Authorization: Bearer <token>"`.
+
+HTTP-specific environment: `MCP_HTTP_PORT` (default 3000), `MCP_HTTP_HOST`
+(default 127.0.0.1; the Docker image listens on 0.0.0.0 — terminate TLS in a
+reverse proxy in front), `MCP_ALLOWED_ORIGINS` (comma-separated Origin
+allowlist for browser clients; empty = reject all browser origins),
+`MCP_SESSION_IDLE_TIMEOUT` (seconds, default 14400). Health check: `GET /healthz`.
+
+Note: claude.ai custom connectors require OAuth and cannot send bearer headers —
+that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md).
+
 ## Configuration
 
 | Variable | Description |
