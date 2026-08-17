@@ -1,0 +1,284 @@
+# Appmixer Flow Authoring Guide
+
+How to write a valid Appmixer flow descriptor JSON (the `flow` body of `POST /flows`).
+
+## 1. Descriptor Structure
+
+A flow is a **flat JSON object**: each key is a **unique component ID (UUID v4)**, each value is a component descriptor. There is no array, no ordering — wiring is expressed per-component via `source`.
+
+```json
+{
+  "<component-uuid-1>": { ...component descriptor... },
+  "<component-uuid-2>": { ...component descriptor... }
+}
+```
+
+### Component descriptor keys (flow-schema.json)
+
+The component descriptor schema has `additionalProperties: false` — only these keys are allowed:
+
+| Key | Required | Type / constraint |
+|-----|----------|-------------------|
+| `type` | **yes** (only required key) | String matching `^\w+\.\w+\.\w+\.\w+$`, i.e. `appmixer.<service>.<module>.<ComponentName>` (e.g. `appmixer.utils.timers.Scheduler`) |
+| `label` | recommended | String; display name shown in Studio |
+| `source` | yes in practice | Object; incoming connections. `{}` for triggers |
+| `config` | yes in practice | Object (or null); allows `properties`, `auth`, `transform`. `{}` if unused |
+| `x`, `y` | optional | Numbers; canvas position in pixels |
+| `version` | optional | String, e.g. `"1.0.0"` |
+| `errorHandling` | optional | Object; see Error Handling. Never change/remove an existing one unless asked |
+| `manifest` | optional | Any (schema leaves it unconstrained) |
+
+**Component IDs must be UUIDs** (e.g. `"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`, `crypto.randomUUID()`), never readable slugs like `"create-project"`. Readable/reused IDs break OAuth account connection: the engine resolves a component's required auth scopes by a **global** componentId lookup that ignores the flowId, so reused IDs bind to the wrong flow and the authorize URL ships with wrong/empty scopes. Never reuse an ID within a flow either.
+
+Component types follow `appmixer.<service>.<module>.<ComponentName>`, e.g. `appmixer.utils.controls.OnStart`, `appmixer.slack.messages.SendMessage`, `appmixer.utils.http.Post`. Never invent component type names — discover them via tools.
+
+## 2. Wiring: the `source` Field
+
+`source` defines **incoming connections**: which upstream component's output port feeds which input port of this component.
+
+```json
+"source": {
+  "<this-component-inPort>": {
+    "<upstream-component-uuid>": ["<upstream-output-port>"]
+  }
+}
+```
+
+Rules:
+
+- **Triggers** (components that start the flow — Timer, Scheduler, WebhookTrigger, OnStart, app triggers) have **`"source": {}`** — no incoming connections. A flow has exactly ONE trigger.
+- **Actions** must have a `source` connecting them to an upstream component.
+- Most actions have a single inPort named `in`, but **not all** — some components use different inPort names (e.g. salesforce CreateLead uses `lead`). The `source` (and `config.transform`) key must be the component's **real inPort name**.
+- The value per upstream UUID is an array of that component's **real output port names** (per schema also a plain string is accepted; the array form with `uniqueItems`, `minItems: 1` is the convention).
+- Fan-in: list multiple upstream UUIDs under the same inPort to receive from several components.
+- Port names are exact: `greater` not `pass`, `weather` not `out`, `request` for WebhookTrigger, `response` for HTTP actions, `item`/`done` for Each.
+- The virtual **`error`** port: every component implicitly has an `error` output port (it is NOT listed in the component's outPorts / tool results). Wire to it like any port: `"source": { "in": { "<failing-uuid>": ["error"] } }` — see Error Handling.
+
+## 3. Configuration: the `config` Field
+
+`config` allows three sub-keys: `properties`, `transform`, `auth`.
+
+### 3a. `config.properties` — static component config
+
+Values for the component's top-level **properties** (design-time, not wired from upstream). Typical for trigger configuration and fixed IDs:
+
+```json
+"config": { "properties": { "minute": "0", "hour": "9", "dayMonth": "*", "month": "*", "dayWeek": "*", "timezone": "UTC" } }
+```
+
+Other examples: Timer `{ "interval": 60 }` (minutes), Airtable `{ "baseId": "appXXX", "tableIdOrName": "tblYYY" }`. Where a field goes is determined by the component definition: fields defined in the component's top-level `properties` → `config.properties`; fields defined on `inPorts` → `config.transform`. `config.properties` is never used for data mapping.
+
+### 3b. `config.transform` — per-inPort input mapping
+
+Maps upstream output data into this component's input fields. Its structure **mirrors `source`**: same inPort key, same upstream UUID, same output port name.
+
+```json
+"config": {
+  "transform": {
+    "<this-inPort>": {
+      "<upstream-component-uuid>": {
+        "<upstream-output-port>": {
+          "type": "json2new",
+          "modifiers": {
+            "<field1>": {
+              "<modifier-uuid>": {
+                "variable": "$.<upstream-uuid>.<port>.<field>",
+                "functions": []
+              }
+            }
+          },
+          "lambda": {
+            "<field1>": "{{{<modifier-uuid>}}}",
+            "<field2>": "<static value>"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+- **`"type": "json2new"` always** — no other transform type is valid.
+- `lambda` maps each input field to either a **static value** (`"Prague"`, `true`, `42`) or a **variable placeholder** `"{{{<modifier-uuid>}}}"`.
+- Include only relevant fields; all fields listed in the inPort schema's `required` must appear in `lambda`.
+- Only include `config.transform` when the component actually receives data from upstream.
+
+### 3c. Variable references (the #1 source of broken flows)
+
+Every variable has TWO coordinated parts:
+
+1. A **`modifiers` entry**, grouped by the lambda field name, keyed by a **freshly generated UUID v4**, holding the source path in `variable` and a `functions` array (`[]` when no function):
+
+```json
+"modifiers": {
+  "temperature": {
+    "13ad74e3-3354-463c-bf30-ea6e0c157ad8": {
+      "variable": "$.6f978a68-f326-4889-89b8-ddd52eca15c0.weather.main.temp",
+      "functions": []
+    }
+  }
+}
+```
+
+2. A **`lambda` placeholder** referencing that UUID: `"temperature": "{{{13ad74e3-3354-463c-bf30-ea6e0c157ad8}}}"`.
+
+The `variable` path is `$.COMPONENT_UUID.PORT_NAME.field.subfield`:
+- `COMPONENT_UUID` — UUID of the upstream component (also present in `source`)
+- `PORT_NAME` — that component's output port name (`out`, `weather`, `greater`, `item`, `request`, `response`, `error`, …)
+- `field.subfield` — dot path into the output object
+
+Critical rules:
+- The raw `$.…` path goes ONLY in the modifier's `variable` field — **never** inside `{{{…}}}` and never as the modifier key. `{{{$.…}}}` corrupts the flow.
+- Placeholders are triple-brace `{{{uuid}}}` — never `{{ }}` or `${}`.
+- Generate a **new random UUID** for every variable; every `{{{uuid}}}` in `lambda` must have a matching `modifiers.<field>.<uuid>` entry, and vice versa (a modifier not bound in `lambda` is silently ignored).
+- Placeholders can be embedded in a larger string, and one field may use several: `"subject": "Weather in {{{uuid1}}}: {{{uuid2}}}°C"` — each with its own modifier entry under that field.
+- **No numeric array indexing in variable paths**: neither `$.x.out.items.0.id` nor `$.x.out.items[0].id` resolves. Reference the array path itself and use a modifier function (`g_jsonPath` with `"$[0].id"`, or `g_first` / `g_last`).
+- An **array** path cannot be dotted into directly; an **object** path only as-is when the field expects an object — otherwise reference the specific leaf.
+- Use only output variable paths confirmed by the discovery tools; never guess field names.
+
+### 3d. Modifier functions
+
+For computed values, add functions to the modifier's `functions` array (applied in order). Each is `{ "name": "g_…", "params": [...], "hashParams": {...} }` — omit whichever is empty. `params` = ordered positional args, each `{ "value": <v> }`; `hashParams` = named args keyed by name, each `{ "value": <v> }`.
+
+```json
+"functions": [{ "name": "g_length" }]
+"functions": [{ "name": "g_jsonPath", "params": [{ "value": "Name" }] }]
+"functions": [{ "name": "g_addTimeSpan", "hashParams": { "days": { "value": 1 } } }]
+```
+
+Common functions: `g_jsonPath`, `g_first`, `g_last`, `g_length`, `g_join`, `g_map`, `g_stringify`, `g_parse`, `g_replace`, `g_split`, `g_trim`, `g_formatDate`, `g_addTimeSpan`, `g_condition`, `g_now`, `g_uuid4`, `g_webhookUrl`.
+
+### 3e. Inspector field value formats
+
+The value format depends on the field's inspector type (same rules in `config.properties` and in `lambda`):
+
+| Inspector type | Value |
+|---------------|-------|
+| `text` / `textarea` | String |
+| `number` | Number (`42`) |
+| `toggle` | Boolean |
+| `select` | The option's `value` (not display label) |
+| `multiselect` | Array of `value` strings, e.g. `["read", "write"]` |
+| `date-time` | ISO 8601 string |
+| `key-value` | **Stringified JSON object**: `"headers": "{\"Content-Type\": \"application/json\"}"` |
+
+**`expression` type** (structured collections) produces a nested object whose keys come from the field's `levels`. Single level `["ADD"]`:
+
+```json
+"variables": { "ADD": [ { "type": "text", "name": "Test Name", "text": "hello" } ] }
+```
+
+Two levels `["AND", "OR"]` (e.g. the Condition component): `{ "AND": [ { "OR": [ { "input": "{{{uuid}}}", "operator": "contains", "value": "urgent" } ] } ] }`. Sub-field names come from the expression's `fields` definition; `{{{uuid}}}` placeholders inside the nested structure have their modifiers keyed by the **top-level** lambda field name.
+
+### 3f. `config.auth`
+
+The flow schema allows an optional `config.auth` object on a component. Connected accounts themselves are bound by the user (e.g. connecting an OAuth account in the designer) — the engine resolves the component's required scopes by componentId, which is why component IDs must be globally unique UUIDs. The sources do not define an authoring-time structure for `config.auth`; do not fabricate one — leave account connection to the platform/user.
+
+## 4. Error Handling
+
+Optional `errorHandling` object — a **sibling** of `type`/`source`/`config`, NOT inside `config`:
+
+```json
+"errorHandling": { "autoRetry": true, "maxRetries": 5, "onError": "errorPort" }
+```
+
+| Field | Meaning |
+|-------|---------|
+| `autoRetry` (boolean) | Engine retries the failed message with backoff. Default `true` |
+| `maxRetries` (integer ≥ 0) | Cap on retries (system max typically 5). Omit for system default |
+| `onError` (enum) | After retries exhausted (or immediately when `autoRetry: false`): `"errorPort"` (route to the virtual `error` port), `"stopFlow"`, or `"storeUnprocessed"` (default) |
+
+All fields optional; `{ "onError": "stopFlow" }` alone is valid. Schema is `additionalProperties: false` — no other keys.
+
+With `"onError": "errorPort"`, wire a handler to the failing component's `error` port. Data available there:
+- `$.<failing-uuid>.error.error.message` (also `.error.code`, `.error.name`)
+- `$.<failing-uuid>.error.input` — the input the failing component received
+- Upstream outputs remain accessible normally, e.g. `$.<trigger-uuid>.out.<field>`
+
+## 5. Layout (x / y)
+
+`x`/`y` are canvas pixels. Convention for readable left-to-right flows: each target at least **208 px right** of its source (`target.x >= source.x + 208`), and connected components either share a row (Δy = 0) or step vertically by at least **128 px**. Simple pattern: trigger at `x: 100, y: 200`, each next step +200 x; branches offset y by ±128 or more.
+
+## 6. Common Validation Failures to Avoid
+
+1. **Component ID not a UUID** — readable/reused IDs break OAuth account connection (global componentId scope lookup). Use a fresh UUID v4 per component.
+2. **`source`/`transform` keyed on wrong inPort name** — uploads fine, but flow START is rejected with an opaque `400 "Malformed transformation"`. Use the component's real inPort name (usually `in`, but check).
+3. **Link or variable references a non-existent outPort** — the flow uploads and starts, but the listener silently never receives a message (e.g. listening on `out` when the component's only outPort is `file`). Variables to bad ports render as invalid chips and never resolve.
+4. **Lambda sends an object/array where the inPort schema says `"type": "string"`** (classic trap: key-value fields like `headers`/`parameters`) — serialize it: `"headers": "[{\"key\": \"Prefer\", \"value\": \"return=representation\"}]"`.
+5. **Numeric array index in a variable path** (`.0.` or `[0]`) — never resolves; use `g_jsonPath`/`g_first`/`g_last` on the array.
+6. **Modifier defined but not bound in `lambda`** (empty/missing lambda value) — the modifier is silently ignored.
+7. **Raw `$.…` path inside `{{{…}}}`** or as the modifier key — corrupts the flow.
+8. **`config.transform` not mirroring `source`** — the same upstream UUID and port name must appear in both.
+9. **Missing required inPort fields in `lambda`**; **trigger with a non-empty `source`**; **references to UUIDs not present in the flow**; **transform type other than `json2new`**.
+10. **Extra keys on the component descriptor** — `additionalProperties: false` rejects anything beyond the keys in section 1.
+
+## 7. Complete Minimal Example
+
+Scheduler (daily 9am) → SendEmail, mixing a static value and a variable reference:
+
+```json
+{
+  "0e8ff425-1a1e-4c07-9f5e-2a9b4d6c8e01": {
+    "type": "appmixer.utils.timers.Scheduler",
+    "label": "Every day at 9am",
+    "source": {},
+    "config": {
+      "properties": {
+        "minute": "0", "hour": "9", "dayMonth": "*", "month": "*", "dayWeek": "*",
+        "timezone": "UTC"
+      }
+    },
+    "x": 100, "y": 200
+  },
+  "9c2d7b4a-5f3e-4a81-b06d-1c8e2f4a6b02": {
+    "type": "appmixer.utils.email.SendEmail",
+    "label": "Send Daily Report",
+    "source": {
+      "in": { "0e8ff425-1a1e-4c07-9f5e-2a9b4d6c8e01": ["out"] }
+    },
+    "config": {
+      "transform": {
+        "in": {
+          "0e8ff425-1a1e-4c07-9f5e-2a9b4d6c8e01": {
+            "out": {
+              "type": "json2new",
+              "modifiers": {
+                "subject": {
+                  "5f0a1b2c-3d4e-5f60-7a8b-9c0d1e2f3a4b": {
+                    "variable": "$.0e8ff425-1a1e-4c07-9f5e-2a9b4d6c8e01.out.now",
+                    "functions": []
+                  }
+                }
+              },
+              "lambda": {
+                "to": "admin@example.com",
+                "subject": "Daily Report - {{{5f0a1b2c-3d4e-5f60-7a8b-9c0d1e2f3a4b}}}",
+                "text": "Your daily report is ready."
+              }
+            }
+          }
+        }
+      }
+    },
+    "x": 300, "y": 200
+  }
+}
+```
+
+Note: the transform mirrors the source (`in` → trigger UUID → `out`), the variable path uses the trigger's UUID and `out` port, and the placeholder is the modifier UUID — never the raw path.
+
+## 8. Useful Utility Components
+
+Triggers: `appmixer.utils.controls.OnStart` (fires once on flow start, port `out`), `appmixer.utils.timers.Timer` (`interval` minutes, port `out`), `appmixer.utils.timers.Scheduler` (cron fields, port `out`), `appmixer.utils.http.WebhookTrigger` (port `request`: method, data, query, headers), `appmixer.utils.appevents.OnAppEvent`.
+
+Actions/control: `appmixer.utils.http.Get/Post/Put/Patch/Delete` (port `response`), `appmixer.utils.http.Response` (respond to a webhook), `appmixer.utils.controls.Condition`, `appmixer.utils.controls.Each` (ports `item`, `done`), `appmixer.utils.controls.SetVariable`, `appmixer.utils.storage.Set/Get`, filters like `appmixer.utils.filters.GreaterThan` (ports `greater`/`notGreater`) and `appmixer.utils.filters.Equal` (ports `equal`/`notEqual`), `appmixer.utils.email.SendEmail`.
+
+Filters only pass/block messages — downstream variable references should point back to the original data source component, not to the filter.
+
+## 9. Authoring Workflow (MCP)
+
+1. **Discover** — list available apps (`list_apps`) and inspect candidate components (`get_components`) to get exact component types, inPort/outPort names, config properties, input fields (and which are required), and output variables. Never guess any of these.
+2. **Build** — assemble the descriptor: one trigger with `"source": {}`, actions wired via `source`, transforms mirroring `source`, fresh UUIDs everywhere.
+3. **Create** the flow via the create-flow tool (`POST /flows`).
+4. **Validate** — call `validate_flow`; fix every reported error (wrong port names, missing required fields, bad variable paths) and re-validate until clean.
+5. **Start** — call `start_flow`. If start fails with a transformation error, re-check inPort key names and transform structure against section 6.

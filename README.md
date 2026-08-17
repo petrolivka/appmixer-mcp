@@ -72,6 +72,21 @@ claude mcp add appmixer npx appmixer-mcp \
 | `trigger_component` | write | POST a webhook payload to a trigger component of a running flow. |
 | `send_app_event` | write | Send a named App Event to the user's flows. |
 
+### Flow authoring tools (`TOOLS=api`)
+
+| Tool | Kind | Description |
+|---|---|---|
+| `get_flow_authoring_guide` | read | The complete guide to writing flow descriptor JSON (also exposed as the MCP resource `appmixer://guides/flow-authoring`). |
+| `list_apps` | read | Apps/connectors available on the tenant. |
+| `get_components` | read | Component summaries per app, or the full manifest of one component (ports, input fields, output variables). |
+| `list_accounts` | read | Third-party accounts connected by the user. |
+| `create_flow` | write | Create a flow from a descriptor; validates automatically. |
+| `update_flow` | write | Replace a flow's descriptor/name; re-validates. |
+| `validate_flow` | read | Server-side validation with per-component errors. |
+
+The intended authoring loop: read the guide → discover components → `create_flow`
+→ fix `validate_flow` errors via `update_flow` → `start_flow`.
+
 All tools ship proper MCP annotations (`readOnlyHint`, `destructiveHint`), so
 well-behaved clients auto-allow reads and always confirm destructive calls.
 Errors are returned as actionable `isError` results with the API status and a
@@ -97,8 +112,12 @@ npm run build       # compile TypeScript to dist/
 npm test            # unit tests (vitest)
 npm run dev         # run from sources (tsx)
 
-# Live smoke test against a real tenant:
+# Live tests against a real tenant:
 APPMIXER_BASE_URL=... APPMIXER_USERNAME=... APPMIXER_PASSWORD=... node test/smoke.mjs
+APPMIXER_BASE_URL=... APPMIXER_USERNAME=... APPMIXER_PASSWORD=... node test/e2e-authoring.mjs
+
+# After editing docs/flow-authoring-guide.md, regenerate the embedded copy:
+npm run gen:guide
 ```
 
 ## License

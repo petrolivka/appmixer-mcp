@@ -71,11 +71,12 @@ export function registerApiTools(server: McpServer, client: AppmixerClient): voi
 
     server.registerTool('get_flow_status', {
         title: 'Get Flow Status',
-        description: 'Get the runtime status of an Appmixer flow (whether it is running, stopped or in error).',
+        description: 'Get the current stage of an Appmixer flow: "running" or "stopped".',
         inputSchema: { id: FLOW_ID },
         annotations: { readOnlyHint: true }
     }, safeHandler(async ({ id }) => {
-        return textResult(await client.getFlowStatus(id));
+        const flow = await client.getFlow(id);
+        return textResult({ flowId: flow.flowId, name: flow.name, stage: flow.stage });
     }));
 
     server.registerTool('get_flow_logs', {
@@ -112,8 +113,8 @@ export function registerApiTools(server: McpServer, client: AppmixerClient): voi
         annotations: { destructiveHint: false, idempotentHint: true }
     }, safeHandler(async ({ id }) => {
         await client.commandFlow(id, 'start');
-        const status = await client.getFlowStatus(id);
-        return textResult({ message: `Flow ${id} start requested.`, status });
+        const flow = await client.getFlow(id);
+        return textResult({ message: `Flow ${id} start requested.`, stage: flow.stage });
     }));
 
     server.registerTool('stop_flow', {
@@ -123,8 +124,8 @@ export function registerApiTools(server: McpServer, client: AppmixerClient): voi
         annotations: { destructiveHint: false, idempotentHint: true }
     }, safeHandler(async ({ id }) => {
         await client.commandFlow(id, 'stop');
-        const status = await client.getFlowStatus(id);
-        return textResult({ message: `Flow ${id} stop requested.`, status });
+        const flow = await client.getFlow(id);
+        return textResult({ message: `Flow ${id} stop requested.`, stage: flow.stage });
     }));
 
     server.registerTool('delete_flow', {

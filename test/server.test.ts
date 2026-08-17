@@ -41,8 +41,10 @@ describe('appmixer MCP server', () => {
         const byName = Object.fromEntries(tools.map(tool => [tool.name, tool]));
 
         expect(Object.keys(byName).sort()).toEqual([
-            'delete_flow', 'get_flow', 'get_flow_logs', 'get_flow_status',
-            'list_flows', 'send_app_event', 'start_flow', 'stop_flow', 'trigger_component'
+            'create_flow', 'delete_flow', 'get_components', 'get_flow',
+            'get_flow_authoring_guide', 'get_flow_logs', 'get_flow_status',
+            'list_accounts', 'list_apps', 'list_flows', 'send_app_event',
+            'start_flow', 'stop_flow', 'trigger_component', 'update_flow', 'validate_flow'
         ]);
         expect(byName.list_flows.annotations?.readOnlyHint).toBe(true);
         expect(byName.delete_flow.annotations?.destructiveHint).toBe(true);
@@ -142,6 +144,6 @@ describe('appmixer MCP server', () => {
 
         await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
         const { tools } = await client.listTools();
-        expect(tools.length).toBe(9); // API tools only, no crash.
+        expect(tools.length).toBe(16); // API + authoring tools only, no crash.
     });
 });

@@ -185,10 +185,6 @@ export class AppmixerClient {
         return this.request<Record<string, unknown>>(`/flows/${encodeURIComponent(id)}`);
     }
 
-    getFlowStatus(id: string) {
-        return this.request<Record<string, unknown>>(`/flows/${encodeURIComponent(id)}/coordinator/status`);
-    }
-
     deleteFlow(id: string) {
         return this.request(`/flows/${encodeURIComponent(id)}`, { method: 'DELETE' });
     }
@@ -216,6 +212,32 @@ export class AppmixerClient {
         return this.request<{ hits?: Record<string, unknown>[] }>('/logs', {
             query: { flowId, query: options.query, size: options.size }
         });
+    }
+
+    getApps() {
+        return this.request<Record<string, { name: string; label?: string; description?: string; category?: string }>>('/apps');
+    }
+
+    getComponents(app: string) {
+        return this.request<Record<string, unknown>[]>('/apps/components', { query: { app } });
+    }
+
+    getAccounts() {
+        return this.request<Record<string, unknown>[]>('/accounts');
+    }
+
+    createFlow(body: Record<string, unknown>) {
+        return this.request<{ flowId: string }>('/flows', { method: 'POST', body });
+    }
+
+    updateFlow(id: string, body: Record<string, unknown>) {
+        return this.request<Record<string, unknown>>(`/flows/${encodeURIComponent(id)}`, {
+            method: 'PUT', body
+        });
+    }
+
+    validateFlow(id: string) {
+        return this.request<{ errors?: unknown[] }>(`/flows/${encodeURIComponent(id)}/validate`);
     }
 
     getGateways() {

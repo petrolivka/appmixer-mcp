@@ -31,3 +31,4 @@ jobs:
             exit 0
           fi
           node test/smoke.mjs
+          node test/e2e-authoring.mjs
