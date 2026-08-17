@@ -240,6 +240,100 @@ export class AppmixerClient {
         return this.request<{ errors?: unknown[] }>(`/flows/${encodeURIComponent(id)}/validate`);
     }
 
+    fetchFlowVariables(flowId: string) {
+        return this.request<{ components?: Record<string, unknown>; flow?: unknown[] }>(
+            `/variables/${encodeURIComponent(flowId)}/fetch`, { method: 'POST', body: {} });
+    }
+
+    getFlowAccounts(flowId: string) {
+        return this.request<Record<string, unknown>[]>(`/accounts/flow/${encodeURIComponent(flowId)}`);
+    }
+
+    assignAccount(componentId: string, accountId: string) {
+        return this.request(
+            `/auth/component/${encodeURIComponent(componentId)}/${encodeURIComponent(accountId)}`,
+            { method: 'PUT' });
+    }
+
+    /**
+     * Run a component test (POST /flows/:id/test) and collect the SSE result
+     * events until test:done / test:error or the timeout elapses.
+     */
+    async runFlowTest(
+        flowId: string,
+        body: { componentId: string; inputData?: unknown; payload?: unknown; options?: Record<string, unknown> },
+        overallTimeoutMs: number
+    ): Promise<{ event: string; data: unknown }[]> {
+
+        const token = await this.ensureToken();
+        const url = `${this.config.baseUrl}/flows/${encodeURIComponent(flowId)}/test`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), overallTimeoutMs);
+        const events: { event: string; data: unknown }[] = [];
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream'
+                },
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
+            if (!response.ok || !response.body) {
+                throw new ApiError(`${response.status} ${response.statusText}`,
+                    response.status, 'POST', url, await safeJson(response));
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let done = false;
+            while (!done) {
+                const { value, done: streamDone } = await reader.read();
+                if (streamDone) break;
+                buffer += decoder.decode(value, { stream: true });
+                let separator;
+                while ((separator = buffer.indexOf('\n\n')) !== -1) {
+                    const block = buffer.slice(0, separator);
+                    buffer = buffer.slice(separator + 2);
+                    let eventName = 'message';
+                    const dataLines: string[] = [];
+                    for (const line of block.split('\n')) {
+                        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+                    }
+                    if (!dataLines.length && eventName === 'message') continue;
+                    let data: unknown = dataLines.join('\n');
+                    try { data = JSON.parse(dataLines.join('\n')); } catch { /* keep text */ }
+                    events.push({ event: eventName, data });
+                    if (eventName === 'test:done' || eventName === 'test:error') {
+                        done = true;
+                        controller.abort(); // Stop the stream; we have the result.
+                    }
+                }
+            }
+        } catch (err) {
+            // An abort after test:done/test:error is the expected exit path.
+            const finished = events.some(e => e.event === 'test:done' || e.event === 'test:error');
+            if (!finished) {
+                if (controller.signal.aborted) {
+                    events.push({
+                        event: 'client:timeout',
+                        data: `No test result within ${overallTimeoutMs} ms; collected ${events.length} events.`
+                    });
+                } else {
+                    throw err;
+                }
+            }
+        } finally {
+            clearTimeout(timer);
+        }
+        return events;
+    }
+
     getGateways() {
         return this.request<Gateway[]>('/plugins/appmixer/ai/mcptools/gateways');
     }

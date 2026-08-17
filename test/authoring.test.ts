@@ -137,6 +137,84 @@ describe('authoring tools', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('get_flow_variables flattens variable paths with schemas', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({
+            components: {
+                'trigger-1': {},
+                'action-1': {
+                    links: {
+                        in: {
+                            'trigger-1': {
+                                out: {
+                                    variables: {
+                                        dynamic: [
+                                            {
+                                                componentId: 'trigger-1', label: 'Data', port: 'out',
+                                                value: '{{{$.trigger-1.out.data}}}',
+                                                schema: { type: 'object', properties: { msg: { type: 'string' } } }
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }));
+        const client = await connectedClient();
+
+        const result = await client.callTool({ name: 'get_flow_variables', arguments: { id: 'f1' } });
+
+        const text = firstText(result);
+        expect(text).toContain('"path": "$.trigger-1.out.data"');
+        expect(text).toContain('"availableTo": "action-1"');
+        expect(text).toContain('"msg"');
+        expect(text).not.toContain('"path": "{{{'); // Paths are unwrapped from placeholders.
+    });
+
+    it('test_flow parses the SSE result stream into outputs', async () => {
+        const sse = [
+            'event: test:start\ndata: {"testRunId":"t1"}\n\n',
+            'event: component:output\ndata: {"componentId":"c1","port":"out","data":{"msg":"direct"}}\n\n',
+            'event: component:done\ndata: {"componentId":"c1"}\n\n',
+            'event: test:done\ndata: {"testRunId":"t1","status":"completed"}\n\n'
+        ].join('');
+        fetchMock.mockResolvedValueOnce(new Response(sse, {
+            status: 200, headers: { 'Content-Type': 'text/event-stream' }
+        }));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'test_flow',
+            arguments: { id: 'f1', component_id: 'c1', input_data: { in: { msg: 'direct' } } }
+        });
+
+        const text = firstText(result);
+        expect(result.isError).toBeFalsy();
+        expect(text).toContain('"status": "completed"');
+        expect(text).toContain('"msg": "direct"');
+        const [, init] = fetchMock.mock.calls[0];
+        expect(JSON.parse(init.body)).toMatchObject({
+            componentId: 'c1',
+            inputData: { in: { msg: 'direct' } }
+        });
+    });
+
+    it('assign_account PUTs to the auth component endpoint', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({}));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'assign_account', arguments: { component_id: 'c1', account_id: 'a1' }
+        });
+
+        expect(result.isError).toBeFalsy();
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toContain('/auth/component/c1/a1');
+        expect(init.method).toBe('PUT');
+    });
+
     it('validate_flow reports success for a clean flow', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({ errors: [] }));
         const client = await connectedClient();

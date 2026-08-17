@@ -25,6 +25,24 @@ interface ComponentManifest {
     [key: string]: unknown;
 }
 
+/** Expand an object schema into concrete leaf variable paths: "$.uuid.out.data.msg (string)". */
+function flattenSchemaPaths(schema: unknown, basePath: string, depth = 0): string[] | undefined {
+    const s = schema as { type?: string; properties?: Record<string, unknown> } | undefined;
+    if (!s || s.type !== 'object' || !s.properties || depth >= 3) return undefined;
+    const paths: string[] = [];
+    for (const [key, property] of Object.entries(s.properties)) {
+        const child = property as { type?: string };
+        const path = `${basePath}.${key}`;
+        const nested = flattenSchemaPaths(child, path, depth + 1);
+        if (nested?.length) {
+            paths.push(...nested);
+        } else {
+            paths.push(`${path} (${child.type || 'unknown'})`);
+        }
+    }
+    return paths;
+}
+
 async function validationSummary(client: AppmixerClient, flowId: string): Promise<unknown> {
     try {
         const result = await client.validateFlow(flowId);
@@ -168,6 +186,122 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         await client.updateFlow(id, body);
         const validation = await validationSummary(client, id);
         return textResult({ flowId: id, updated: true, validation });
+    }));
+
+    server.registerTool('get_flow_variables', {
+        title: 'Get Flow Variables',
+        description: 'Get the output variables available to each component of a flow — the exact ' +
+            '"$.<componentId>.<port>.<field>" paths (with schemas) usable in config.transform ' +
+            'modifiers. Call this after create_flow/update_flow to fix or build variable references ' +
+            'instead of guessing paths.',
+        inputSchema: {
+            id: z.string().min(1).describe('The ID of the flow.'),
+            component_id: z.string().optional()
+                .describe('Only return variables available to this component.')
+        },
+        annotations: { readOnlyHint: true }
+    }, safeHandler(async ({ id, component_id }) => {
+        const result = await client.fetchFlowVariables(id);
+        const components = (result.components || {}) as Record<string, {
+            links?: Record<string, Record<string, Record<string, {
+                variables?: { dynamic?: { label?: string; port?: string; value?: string; schema?: unknown }[] }
+            }>>>
+        }>;
+        const rows: Record<string, unknown>[] = [];
+        for (const [componentId, entry] of Object.entries(components)) {
+            if (component_id && componentId !== component_id) continue;
+            for (const [inPort, upstreams] of Object.entries(entry.links || {})) {
+                for (const [upstreamId, ports] of Object.entries(upstreams)) {
+                    for (const [port, portEntry] of Object.entries(ports)) {
+                        for (const variable of portEntry.variables?.dynamic || []) {
+                            const path = variable.value?.replace(/^\{\{\{|\}\}\}$/g, '');
+                            rows.push({
+                                availableTo: componentId,
+                                inPort,
+                                from: upstreamId,
+                                port,
+                                label: variable.label,
+                                path,
+                                fields: path ? flattenSchemaPaths(variable.schema, path) : undefined
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        return textResult({
+            count: rows.length,
+            note: 'Use `path` as the "variable" of a modifier entry in config.transform ' +
+                '(never inside {{{...}}} placeholders directly).',
+            variables: rows
+        });
+    }));
+
+    server.registerTool('test_flow', {
+        title: 'Test Flow',
+        description: 'Test-run a single component (and its downstream graph) of a flow without ' +
+            'starting the flow. Provide the input data the component should receive; returns the ' +
+            'outputs each component produced. The flow does not need to be running. Use this to ' +
+            'verify a flow works before start_flow.',
+        inputSchema: {
+            id: z.string().min(1).describe('The ID of the flow.'),
+            component_id: z.string().min(1)
+                .describe('The component to inject test input into (typically the first action after the trigger, or the trigger itself with `payload`).'),
+            input_data: z.record(z.string(), z.unknown()).optional()
+                .describe('Input for the tested component, keyed by its inPort name, e.g. {"in": {"to": "x@example.com"}}.'),
+            payload: z.record(z.string(), z.unknown()).optional()
+                .describe('Webhook-style payload when testing a trigger component.'),
+            timeout_seconds: z.number().int().min(5).max(120).default(30)
+                .describe('How long to wait for the test to finish.')
+        },
+        annotations: { destructiveHint: false, openWorldHint: true }
+    }, safeHandler(async ({ id, component_id, input_data, payload, timeout_seconds }) => {
+        const events = await client.runFlowTest(id, {
+            componentId: component_id,
+            inputData: input_data,
+            payload,
+            options: { timeout: timeout_seconds * 1000 }
+        }, timeout_seconds * 1000 + 10_000);
+
+        const outputs = events
+            .filter(e => e.event === 'component:output')
+            .map(e => e.data as Record<string, unknown>)
+            .map(d => ({ componentId: d.componentId, port: d.port, data: d.data }));
+        const errors = events
+            .filter(e => e.event === 'component:error' || e.event === 'test:error')
+            .map(e => e.data);
+        const doneEvent = events.find(e => e.event === 'test:done');
+        return textResult({
+            status: doneEvent ? (doneEvent.data as Record<string, unknown>).status : 'timeout',
+            outputs,
+            errors: errors.length ? errors : undefined,
+            events: events.map(e => e.event)
+        });
+    }));
+
+    server.registerTool('get_flow_accounts', {
+        title: 'Get Flow Accounts',
+        description: 'List which components of a flow require a connected third-party account and ' +
+            'which account (if any) is assigned to them.',
+        inputSchema: { id: z.string().min(1).describe('The ID of the flow.') },
+        annotations: { readOnlyHint: true }
+    }, safeHandler(async ({ id }) => {
+        return textResult(await client.getFlowAccounts(id));
+    }));
+
+    server.registerTool('assign_account', {
+        title: 'Assign Account',
+        description: 'Assign a connected third-party account (see list_accounts) to a component of ' +
+            'a flow, so the component can authenticate against its service. The account must belong ' +
+            'to the authenticated user and match the component\'s service.',
+        inputSchema: {
+            component_id: z.string().min(1).describe('The ID of the component (see get_flow).'),
+            account_id: z.string().min(1).describe('The ID of the account (see list_accounts).')
+        },
+        annotations: { destructiveHint: false, idempotentHint: true }
+    }, safeHandler(async ({ component_id, account_id }) => {
+        await client.assignAccount(component_id, account_id);
+        return textResult(`Account ${account_id} assigned to component ${component_id}.`);
     }));
 
     server.registerTool('validate_flow', {

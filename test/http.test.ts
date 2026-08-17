@@ -57,7 +57,7 @@ describe('streamable HTTP transport', () => {
         try {
             const { client } = await connect(url, futureJwt());
             const { tools } = await client.listTools();
-            expect(tools.length).toBe(16);
+            expect(tools.length).toBe(20);
 
             const result = await client.callTool({ name: 'list_flows', arguments: {} });
             expect(result.isError).toBeFalsy();
@@ -108,7 +108,7 @@ describe('streamable HTTP transport', () => {
         try {
             const { client } = await connect(url);
             const { tools } = await client.listTools();
-            expect(tools.length).toBe(16);
+            expect(tools.length).toBe(20);
             await client.close();
         } finally {
             httpApp.close(); server.close();

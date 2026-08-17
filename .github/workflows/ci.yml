@@ -33,3 +33,4 @@ jobs:
           node test/smoke.mjs
           node test/smoke-http.mjs
           node test/e2e-authoring.mjs
+          node test/golden-flows.mjs

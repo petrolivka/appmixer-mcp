@@ -18,7 +18,11 @@ authenticated user's tenant.
 - To BUILD or MODIFY a flow: read get_flow_authoring_guide first, discover exact
   component types/ports/fields with list_apps + get_components, then create_flow,
   fix errors reported by validate_flow via update_flow, and finally start_flow.
-  Never guess component types, port names or output variable paths.
+  Never guess component types, port names or output variable paths — after
+  creating the flow, get_flow_variables returns the exact variable paths and
+  test_flow lets you dry-run a component with sample input before starting.
+- Components of third-party apps need a connected account: check with
+  get_flow_accounts, connect accounts in the Appmixer UI, bind with assign_account.
 - Additional tools may appear or disappear at runtime: any flow that contains a
   running "MCP Gateway" component contributes its connected tools to this server.`;
 

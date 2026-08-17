@@ -109,9 +109,14 @@ that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)
 | `create_flow` | write | Create a flow from a descriptor; validates automatically. |
 | `update_flow` | write | Replace a flow's descriptor/name; re-validates. |
 | `validate_flow` | read | Server-side validation with per-component errors. |
+| `get_flow_variables` | read | Exact `$.<componentId>.<port>.<field>` variable paths (with leaf fields) available to each component. |
+| `test_flow` | write | Dry-run one component + its downstream graph with sample input, without starting the flow. |
+| `get_flow_accounts` | read | Which components need a connected account and what is assigned. |
+| `assign_account` | write | Bind a connected account to a component. |
 
 The intended authoring loop: read the guide → discover components → `create_flow`
-→ fix `validate_flow` errors via `update_flow` → `start_flow`.
+→ fix `validate_flow` errors via `update_flow` → check paths with
+`get_flow_variables` → dry-run with `test_flow` → `start_flow`.
 
 All tools ship proper MCP annotations (`readOnlyHint`, `destructiveHint`), so
 well-behaved clients auto-allow reads and always confirm destructive calls.
