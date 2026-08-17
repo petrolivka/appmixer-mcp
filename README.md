@@ -1,182 +1,106 @@
 # Appmixer MCP
 
-A Model Context Protocol (MCP) server that provides LLMs with agentic workflow automation capabilities using Appmixer. This server enables LLMs to interact with other MCP servers configured via Appmixer or with custom built workflows that use 3rd party SaaS products, APIs or other utilities.
+A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for the
+[Appmixer](https://www.appmixer.com) workflow-automation platform. It lets LLM
+clients (Claude, Cursor, VS Code, Windsurf, …) control and observe the flows of
+an Appmixer tenant user, and dynamically exposes tools published by
+"MCP Gateway" components running inside Appmixer flows.
 
 ## Requirements
+
 - Node.js 20 or newer
-- VS Code, Cursor, Windsurf, Claude Desktop or any other MCP client
+- An Appmixer tenant and user account
 
 ## Getting started
 
-First, install the Appmixer MCP server with your client. A typical configuration looks like this:
+Add the server to your MCP client. A typical configuration:
 
-```js
+```json
 {
   "mcpServers": {
-    "appmixer-mcp": {
+    "appmixer": {
       "command": "npx",
-      "args": [
-        "appmixer-mcp"
-      ],
+      "args": ["appmixer-mcp"],
       "env": {
-        "APPMIXER_BASE_URL": "<your-appmixer-tenant-api-base-url>",
-        "APPMIXER_ACCESS_TOKEN": "<your-appmixer-access-token>",
-        "APPMIXER_USERNAME": "<optional-appmixer-username>",
-        "APPMIXER_PASSWORD": "<optional-appmixer-password>"
-      }
-    }
-  }
-}
-```
-
-<details>
-<summary><b>Install in Claude Desktop</b></summary>
-
-Follow the MCP install [guide](https://modelcontextprotocol.io/quickstart/user), use following configuration:
-
-```js
-{
-  "mcpServers": {
-    "appmixer-mcp": {
-      "command": "npx",
-      "args": [
-        "appmixer-mcp"
-      ],
-      "env": {
-        "APPMIXER_BASE_URL": "<your-appmixer-tenant-api-base-url>",
-        "APPMIXER_ACCESS_TOKEN": "<your-appmixer-access-token>",
-        "APPMIXER_USERNAME": "<optional-appmixer-username>",
-        "APPMIXER_PASSWORD": "<optional-appmixer-password>"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><b>Install in Windsurf</b></summary>
-
-Follow Windsuff MCP [documentation](https://docs.windsurf.com/windsurf/cascade/mcp). Use following configuration:
-
-```js
-{
-  "mcpServers": {
-    "appmixer-mcp": {
-      "command": "npx",
-      "args": [
-        "appmixer-mcp"
-      ],
-      "env": {
-        "APPMIXER_BASE_URL": "<your-appmixer-tenant-api-base-url>",
-        "APPMIXER_ACCESS_TOKEN": "<your-appmixer-access-token>",
-        "APPMIXER_USERNAME": "<optional-appmixer-username>",
-        "APPMIXER_PASSWORD": "<optional-appmixer-password>"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details><summary><b>Install in VS Code</b></summary>
-
-You can also install the Appmixer MCP server using the VS Code CLI:
-
-```bash
-# For VS Code
-code --add-mcp '{"name":"appmixer-mcp","command":"npx","args":["appmixer-mcp","env":{"APPMIXER_BASE_URL":"","APPMIXER_ACCESS_TOKEN":""}]}'
-```
-
-After installation, the Appmixer MCP server will be available for use with your GitHub Copilot agent in VS Code.
-</details>
-
-<details>
-<summary><b>Install in Cursor</b></summary>
-
-Go to `Cursor Settings` -> `MCP` -> `Add new MCP Server`. Name to your liking, use `command` type with the command `npx appmixer-mcp`. You can also verify config or add command like arguments via clicking `Edit`.
-
-```js
-{
-  "mcpServers": {
-    "appmixer-mcp": {
-      "command": "npx",
-      "args": [
-        "appmixer-mcp"
-      ],
-      "env": {
-        "APPMIXER_BASE_URL": "<your-appmixer-tenant-api-base-url>",
+        "APPMIXER_BASE_URL": "https://api.YOUR_TENANT.appmixer.cloud",
         "APPMIXER_ACCESS_TOKEN": "<your-appmixer-access-token>"
       }
     }
   }
 }
 ```
-</details>
 
-<details>
-<summary><b>Install in Claude Code</b></summary>
-
-Use the Claude Code CLI to add the Appmixer MCP server:
+With Claude Code:
 
 ```bash
-claude mcp add appmixer-mcp npx appmixer-mcp -e APPMIXER_BASE_URL="" -e APPMIXER_ACCESS_TOKEN=""
+claude mcp add appmixer npx appmixer-mcp \
+  -e APPMIXER_BASE_URL="https://api.YOUR_TENANT.appmixer.cloud" \
+  -e APPMIXER_ACCESS_TOKEN="..."
 ```
-</details>
 
 ## Configuration
 
-Appmixer MCP server supports following environment variables:
+| Variable | Description |
+|---|---|
+| `APPMIXER_BASE_URL` | **Required.** Your Appmixer tenant API URL, e.g. `https://api.YOUR_TENANT.appmixer.cloud`. |
+| `APPMIXER_ACCESS_TOKEN` | Appmixer access token (JWT). Recommended over username/password. |
+| `APPMIXER_USERNAME` | Appmixer username — only needed when no token is provided, or to let the server renew expired tokens automatically. |
+| `APPMIXER_PASSWORD` | Appmixer password (see above). |
+| `TOOLS` | Enabled tool groups, comma-separated. Default `api,mcpgateway`. |
 
+### Authentication notes
 
-| Name                   | Description                             |
-|------------------------|-----------------------------------------|
-| APPMIXER_BASE_URL      | Your Appmixer tenant API url. For example: `https://api.YOUR_TENANT.appmixer.cloud` |
-| APPMIXER_ACCESS_TOKEN  | Your Appmixer access token. See Authentication section below for more info.  |
-| APPMIXER_USERNAME      | Your Appmixer username. See Authentication section below for more info. |
-| APPMIXER_PASSWORD      | Your Appmixer password. See Authentication section below for more info. |
-| TOOLS                  | Set to `api,mcpgateway` by default meaning both the Appmixer API tools such as "get-flows" and "MCP Gateway" entry points are enabled. |
-
-## Authentication
-
-You can either set the `APPMIXER_ACCESS_TOKEN` environment variable or use your `APPMIXER_USERNAME` and `APPMIXER_PASSWORD` credentials directly. Note that the former is way more secure. However, note that there's an expiration time on your access token in Appmixer (consult your Appmixer admin to see what the system setting `GRIDD_JWT_TOKEN_EXP` is set to (by default `30d`)).
+- Prefer `APPMIXER_ACCESS_TOKEN`. Tokens expire (`GRIDD_JWT_TOKEN_EXP` system
+  setting, `30d` by default) — when username/password are also provided, the
+  server re-authenticates automatically on expiry.
+- Consider a dedicated non-admin Appmixer user for MCP access so the token's
+  capabilities are limited by ACL.
 
 ## Tools
 
-### API Tools
+### API tools (`TOOLS=api`)
 
-- **get-flows**
-  - Parameters:
-   - `pattern` (string): Pattern to filter flows by name.
-- **get-flow**
-  - Parameters:
-    - `id` (string): Flow ID
-- **delete-flow**
-  - Parameters:
-    - `id` (string): Flow ID
-- **start-flow**
-  - Parameters:
-    - `id` (string): Flow ID
-- **stop-flow**
-  - Parameters:
-    - `id` (string): Flow ID
-- **trigger-component**
-  - Parameters:
-    - `id` (string): Flow ID
-    - `componentId` (string): Component ID
-    - `method` (string): HTTP method
-    - `body` (string): JSON string that will be sent as the body of the HTTP 
-    call to the component.
-- **send-app-event**
-  - Parameters:
-    - `event` (string): App Event name
-    - `data` (string): JSON string that will be sent as the event data.
-- **get-flow-logs**
-  - Parameters:
-    - `id` (string): Flow ID
-    - `query` (string): Apache Lucene Query Parser Syntax to filter the logs based on a search criteria.
+| Tool | Kind | Description |
+|---|---|---|
+| `list_flows` | read | List flows (pattern filter, pagination). |
+| `get_flow` | read | Flow metadata + component list; optionally the full descriptor. |
+| `get_flow_status` | read | Runtime status of a flow. |
+| `get_flow_logs` | read | Execution logs, filterable with Lucene query syntax. |
+| `start_flow` | write | Start a flow. |
+| `stop_flow` | write | Stop a flow. |
+| `delete_flow` | destructive | Permanently delete a flow. |
+| `trigger_component` | write | POST a webhook payload to a trigger component of a running flow. |
+| `send_app_event` | write | Send a named App Event to the user's flows. |
 
-### MCP Gateway Tools
+All tools ship proper MCP annotations (`readOnlyHint`, `destructiveHint`), so
+well-behaved clients auto-allow reads and always confirm destructive calls.
+Errors are returned as actionable `isError` results with the API status and a
+hint on how to fix the problem.
 
-Every time you use the "MCP Gateway" component from the "MCP Tools" category in any of your running flows, the Appmixer MCP server automatically detects the tools connected to this component and lists those. Note that the server is able to detect the changes dynamically meaning just by starting/stopping your Appmixer flows that include the "MCP Gateway" component, you change the list of available tools.
+### MCP Gateway tools (`TOOLS=mcpgateway`)
 
+Every running flow that contains an "MCP Gateway" component (from the
+"MCP Tools" category) contributes its connected tools to this server. The tool
+list updates live — starting or stopping such flows adds or removes tools
+(standard `tools/list_changed` notifications).
+
+Requires the `appmixer.ai.mcptools` module installed on the tenant. When the
+module is missing, gateway tools are disabled gracefully and API tools keep
+working. See [`docs/mcptools-endpoints.md`](docs/mcptools-endpoints.md) for the
+module's endpoint documentation.
+
+## Development
+
+```bash
+npm install
+npm run build       # compile TypeScript to dist/
+npm test            # unit tests (vitest)
+npm run dev         # run from sources (tsx)
+
+# Live smoke test against a real tenant:
+APPMIXER_BASE_URL=... APPMIXER_USERNAME=... APPMIXER_PASSWORD=... node test/smoke.mjs
+```
+
+## License
+
+[MIT](LICENSE)
