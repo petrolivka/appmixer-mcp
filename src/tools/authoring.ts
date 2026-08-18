@@ -299,6 +299,57 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         });
     }));
 
+    server.registerTool('get_component_options', {
+        title: 'Get Component Options',
+        description: 'Resolve a component\'s dynamic options at runtime — the values behind ' +
+            'inspector fields and output ports whose manifest carries a `source` URL (channel ' +
+            'pickers, sheet lists, generated output variables). The component must already exist ' +
+            'in one of your flows: create the flow first, then resolve options, then fill the ' +
+            'values in via update_flow. Where the manifest\'s `source.data` contains pointer ' +
+            'strings like "properties/event", pass the actual property values in `properties`.',
+        inputSchema: {
+            component_type: z.string().regex(COMPONENT_TYPE_PATTERN)
+                .describe('Full component type, e.g. "appmixer.utils.controls.Each".'),
+            component_id: z.string().min(1)
+                .describe('ID of an existing component of this type in one of your flows.'),
+            out_port: z.string().optional()
+                .describe('Output port name when resolving output-port options (the `outPort` query of the source URL).'),
+            properties: z.record(z.string(), z.unknown()).optional()
+                .describe('Resolved property values the source expects, e.g. {"generateOutputPortOptions": true, "event": "my-event"}.'),
+            messages: z.record(z.string(), z.unknown()).optional()
+                .describe('Sample input messages keyed by inPort, e.g. {"in": {"list": [{"sku": "X1"}]}}.')
+        },
+        annotations: { readOnlyHint: true, openWorldHint: true }
+    }, safeHandler(async ({ component_type, component_id, out_port, properties, messages }) => {
+        const options = await client.callComponentFunction(
+            component_type, { componentId: component_id, properties, messages }, out_port);
+        return textResult(options ?? []);
+    }));
+
+    server.registerTool('get_trigger_url', {
+        title: 'Get Trigger URL',
+        description: 'Get the public webhook URL of a trigger component (e.g. WebhookTrigger) in ' +
+            'one of your flows. Use it to chain flows: another flow POSTs to this URL via ' +
+            'appmixer.utils.http.Post — no credentials needed, the endpoint is public. The flow ' +
+            'must be running for the webhook to actually accept requests.',
+        inputSchema: {
+            flow_id: z.string().min(1).describe('The ID of the flow the trigger belongs to.'),
+            component_id: z.string().min(1).describe('The ID of the trigger component.')
+        },
+        annotations: { readOnlyHint: true }
+    }, safeHandler(async ({ flow_id, component_id }) => {
+        try {
+            return textResult(await client.getTriggerUrl(component_id));
+        } catch {
+            // GET /triggers/:componentId/url 500s on current platform versions
+            // (missing `return` in the route's pre-step, gridd/routes/trigger.js).
+            // The URL is deterministic, so fall back to constructing it.
+            return textResult({
+                url: `${client.baseUrl}/flows/${encodeURIComponent(flow_id)}/components/${encodeURIComponent(component_id)}`
+            });
+        }
+    }));
+
     server.registerTool('get_flow_accounts', {
         title: 'Get Flow Accounts',
         description: 'List which components of a flow require a connected third-party account and ' +

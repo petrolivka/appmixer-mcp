@@ -128,6 +128,8 @@ that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)
 | `validate_flow` | read | Server-side validation with per-component errors. |
 | `get_flow_variables` | read | Exact `$.<componentId>.<port>.<field>` variable paths (with leaf fields) available to each component. |
 | `test_flow` | write | Dry-run one component + its downstream graph with sample input, without starting the flow. |
+| `get_component_options` | read | Resolve dynamic inspector/output-port options (channel pickers, sheet lists, generated variables) at runtime. |
+| `get_trigger_url` | read | Public webhook URL of a trigger component — the building block for chaining flows. |
 | `get_flow_accounts` | read | Which components need a connected account and what is assigned. |
 | `assign_account` | write | Bind a connected account to a component. |
 

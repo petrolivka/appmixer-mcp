@@ -227,6 +227,29 @@ export class AppmixerClient {
         return this.request<Record<string, unknown>>('/user');
     }
 
+    /**
+     * Call a component's static function — the endpoint behind the `source`
+     * URLs in component manifests, which the Designer uses to resolve dynamic
+     * inspector options and output-port variables at runtime.
+     */
+    callComponentFunction(
+        type: string,
+        body: { componentId: string; properties?: Record<string, unknown>; messages?: Record<string, unknown> },
+        outPort?: string
+    ) {
+        const segments = type.split('.');
+        if (segments.length !== 4) {
+            throw new ApiError(`Invalid component type "${type}" (expected vendor.service.module.Component).`,
+                undefined, 'POST', `${this.config.baseUrl}/component/...`);
+        }
+        const path = `/component/${segments.map(encodeURIComponent).join('/')}`;
+        return this.request<unknown>(path, { method: 'POST', body, query: { outPort } });
+    }
+
+    getTriggerUrl(componentId: string) {
+        return this.request<unknown>(`/triggers/${encodeURIComponent(componentId)}/url`);
+    }
+
     triggerComponent(
         flowId: string,
         componentId: string,

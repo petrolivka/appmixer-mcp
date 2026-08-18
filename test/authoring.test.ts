@@ -235,6 +235,71 @@ describe('authoring tools', () => {
         expect(text).toContain('"ok": true');
     });
 
+    it('get_component_options POSTs to the component function endpoint', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse([
+            { label: 'item.sku', value: 'value.sku' }
+        ]));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'get_component_options',
+            arguments: {
+                component_type: 'appmixer.utils.controls.Each',
+                component_id: 'comp-1',
+                out_port: 'item',
+                messages: { in: { list: [{ sku: 'X1' }] } }
+            }
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(firstText(result)).toContain('value.sku');
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toContain('/component/appmixer/utils/controls/Each?outPort=item');
+        expect(JSON.parse(init.body)).toEqual({
+            componentId: 'comp-1',
+            messages: { in: { list: [{ sku: 'X1' }] } }
+        });
+    });
+
+    it('get_component_options rejects malformed component types before calling the API', async () => {
+        const client = await connectedClient();
+        const result = await client.callTool({
+            name: 'get_component_options',
+            arguments: { component_type: 'not-a-type', component_id: 'c1' }
+        });
+        expect(result.isError).toBe(true);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('get_trigger_url GETs the trigger url endpoint', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ response: 'https://api.tenant/flows/f1/components/c1' }));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'get_trigger_url', arguments: { flow_id: 'f1', component_id: 'c1' }
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(firstText(result)).toContain('/flows/f1/components/c1');
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toContain('/triggers/c1/url');
+        expect(init.method ?? 'GET').toBe('GET');
+    });
+
+    it('get_trigger_url falls back to the constructed URL when the endpoint 500s', async () => {
+        // Current platform versions 500 on /triggers/:id/url (missing return in
+        // the route's pre-step); the deterministic URL keeps the tool useful.
+        fetchMock.mockResolvedValueOnce(jsonResponse({ message: 'method method did not return a value' }, 500));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'get_trigger_url', arguments: { flow_id: 'f1', component_id: 'c1' }
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(firstText(result)).toContain(`${BASE_URL}/flows/f1/components/c1`);
+    });
+
     it('assign_account PUTs to the auth component endpoint', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({}));
         const client = await connectedClient();

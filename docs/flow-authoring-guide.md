@@ -309,7 +309,20 @@ API). Do not build a flow that "sends an app event".
 
 To make one flow start another, give the second flow an `appmixer.utils.http.WebhookTrigger`
 and have the first flow call that trigger's webhook URL with `appmixer.utils.http.Post`. The
-trigger's webhook endpoint is public, so no credentials are needed for the call.
+trigger's webhook endpoint is public, so no credentials are needed for the call. Get the URL
+with `get_trigger_url` once the second flow exists.
+
+### Dynamic options
+
+Some inspector fields and output ports do not list their values in the manifest — they carry a
+`source` URL and resolve at runtime (a Slack channel picker, a Google Sheet list, output
+variables generated from input data). Never guess such values (channel IDs, sheet IDs, dynamic
+field names). Resolve them with `get_component_options`: create the flow first so the component
+exists, then call the tool with the component's type, its ID, the `outPort` from the source URL
+(if any), and resolved property values — manifest `source.data` entries like
+`"event": "properties/event"` are pointers meaning "send this component property's value";
+`messages` carries sample inPort data when the spec asks for it. The tool returns
+`[{ label, value, schema? }]`; use `value` in transforms and inspector fields.
 
 ## 9. Authoring Workflow (MCP)
 
@@ -319,6 +332,7 @@ trigger's webhook endpoint is public, so no credentials are needed for the call.
 4. **Verify variable paths** — call `get_flow_variables` and check that every modifier
    `variable` path exactly matches a reported path (watch for wrapper objects like
    OnAppEvent's `data`). This catches the most common validation failure before it happens.
+   For fields backed by a `source` URL, resolve real values with `get_component_options`.
 5. **Validate** — call `validate_flow`; fix every reported error (wrong port names, missing required fields, bad variable paths) and re-validate until clean.
 6. **Dry-run** (optional but recommended) — `test_flow` with sample input on the first action verifies the transforms end to end without starting the flow.
 7. **Start** — call `start_flow`. If start fails with a transformation error, re-check inPort key names and transform structure against section 6.

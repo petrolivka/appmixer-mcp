@@ -155,7 +155,28 @@ function goldenErrorPort() {
     };
 }
 
-const goldens = [goldenConditionBranching(), goldenModifierFunctions(), goldenErrorPort()];
+function goldenWebhookTrigger() {
+    const t = randomUUID(), set = randomUUID(), m = randomUUID();
+    return {
+        name: 'golden-webhook-trigger',
+        triggerUrlComponent: t,
+        flow: {
+            [t]: {
+                type: 'appmixer.utils.http.WebhookTrigger',
+                label: 'Incoming webhook',
+                source: {},
+                config: {},
+                x: 100, y: 200
+            },
+            [set]: setVariable(t, 'request',
+                { [m]: { variable: `$.${t}.request.method`, functions: [] } },
+                [{ name: 'method', type: 'text', text: `{{{${m}}}}` }],
+                { x: 300, y: 200 })
+        }
+    };
+}
+
+const goldens = [goldenConditionBranching(), goldenModifierFunctions(), goldenErrorPort(), goldenWebhookTrigger()];
 let failures = 0;
 
 for (const golden of goldens) {
@@ -176,6 +197,23 @@ for (const golden of goldens) {
             if (!variables.includes('.out.data.msg')) {
                 throw new Error('get_flow_variables did not report the expected path.');
             }
+            // Exercise get_component_options on the trigger (dynamic output-port
+            // options resolved at runtime from eventDataExample).
+            const trigger = Object.entries(golden.flow)
+                .find(([, c]) => c.type === 'appmixer.utils.appevents.OnAppEvent');
+            const options = await call('get_component_options', {
+                component_type: 'appmixer.utils.appevents.OnAppEvent',
+                component_id: trigger[0],
+                out_port: 'out',
+                properties: {
+                    generateOutputPortOptions: true,
+                    event: trigger[1].config.properties.event,
+                    eventDataExample: trigger[1].config.properties.eventDataExample
+                }
+            });
+            if (!options.includes('"value": "data"')) {
+                throw new Error(`get_component_options did not resolve trigger options: ${options.slice(0, 200)}`);
+            }
             // Dry-run the component via test_flow.
             const test = JSON.parse(await call('test_flow', {
                 id: flowId,
@@ -185,6 +223,13 @@ for (const golden of goldens) {
             }));
             if (test.status !== 'completed') throw new Error(`test_flow status: ${test.status}`);
             console.log(`golden ok: ${golden.name} (test_flow completed, ${test.outputs.length} outputs)`);
+        }
+        if (golden.triggerUrlComponent) {
+            const url = await call('get_trigger_url', { flow_id: flowId, component_id: golden.triggerUrlComponent });
+            if (!url.includes(`/flows/${flowId}/components/${golden.triggerUrlComponent}`)) {
+                throw new Error(`get_trigger_url returned unexpected value: ${url.slice(0, 200)}`);
+            }
+            console.log(`golden ok: ${golden.name} (trigger URL resolved)`);
         }
     } catch (err) {
         failures++;

@@ -41,9 +41,9 @@ describe('appmixer MCP server', () => {
         const byName = Object.fromEntries(tools.map(tool => [tool.name, tool]));
 
         expect(Object.keys(byName).sort()).toEqual([
-            'assign_account', 'create_flow', 'delete_flow', 'get_components',
-            'get_flow', 'get_flow_accounts', 'get_flow_authoring_guide',
-            'get_flow_logs', 'get_flow_status', 'get_flow_variables',
+            'assign_account', 'create_flow', 'delete_flow', 'get_component_options',
+            'get_components', 'get_flow', 'get_flow_accounts', 'get_flow_authoring_guide',
+            'get_flow_logs', 'get_flow_status', 'get_flow_variables', 'get_trigger_url',
             'list_accounts', 'list_apps', 'list_flows', 'read_component_trigger',
             'send_app_event', 'start_flow', 'stop_flow', 'test_flow',
             'trigger_component', 'update_flow', 'validate_flow'
@@ -181,7 +181,7 @@ describe('appmixer MCP server', () => {
 
         await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
         const { tools } = await client.listTools();
-        expect(tools.length).toBe(21); // API + authoring tools only, no crash.
+        expect(tools.length).toBe(23); // API + authoring tools only, no crash.
     });
 
     it('re-registers a gateway tool whose schema changed under the same name', async () => {
