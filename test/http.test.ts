@@ -57,7 +57,7 @@ describe('streamable HTTP transport', () => {
         try {
             const { client } = await connect(url, futureJwt());
             const { tools } = await client.listTools();
-            expect(tools.length).toBe(20);
+            expect(tools.length).toBe(21);
 
             const result = await client.callTool({ name: 'list_flows', arguments: {} });
             expect(result.isError).toBeFalsy();
@@ -74,6 +74,22 @@ describe('streamable HTTP transport', () => {
         const { url, server, httpApp } = await startServer({ MCP_AUTH_MODE: 'bearer' });
         try {
             await expect(connect(url)).rejects.toThrow(/Missing Authorization header/);
+        } finally {
+            httpApp.close(); server.close();
+        }
+    });
+
+    it('refuses to create a session for a token the tenant rejects', async () => {
+        upstreamMock.mockImplementation((url: string) => Promise.resolve(
+            String(url).endsWith('/user')
+                ? jsonResponse({ message: 'unauthorized' }, 401)
+                : jsonResponse([])));
+        const { url, server, httpApp } = await startServer({ MCP_AUTH_MODE: 'bearer' });
+        try {
+            await expect(connect(url, futureJwt())).rejects.toThrow(/rejected this access token/);
+            // The credential never bought any session state.
+            const health = await realFetch(url.replace('/mcp', '/healthz')).then(r => r.json()) as { sessions: number };
+            expect(health.sessions).toBe(0);
         } finally {
             httpApp.close(); server.close();
         }
@@ -108,7 +124,7 @@ describe('streamable HTTP transport', () => {
         try {
             const { client } = await connect(url);
             const { tools } = await client.listTools();
-            expect(tools.length).toBe(20);
+            expect(tools.length).toBe(21);
             await client.close();
         } finally {
             httpApp.close(); server.close();

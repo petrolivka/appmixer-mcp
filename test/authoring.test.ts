@@ -201,6 +201,40 @@ describe('authoring tools', () => {
         });
     });
 
+    it('test_flow reports a server-side test:error as an error, not a timeout', async () => {
+        const sse = 'event: test:error\ndata: {"message":"Unknown componentId"}\n\n';
+        fetchMock.mockResolvedValueOnce(new Response(sse, {
+            status: 200, headers: { 'Content-Type': 'text/event-stream' }
+        }));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'test_flow', arguments: { id: 'f1', component_id: 'nope' }
+        });
+
+        const text = firstText(result);
+        expect(text).toContain('"status": "error"');
+        expect(text).toContain('Unknown componentId');
+        expect(text).not.toContain('timeout');
+    });
+
+    it('test_flow parses CRLF event streams', async () => {
+        const sse = 'event: component:output\r\ndata: {"componentId":"c1","port":"out","data":{"ok":true}}\r\n\r\n'
+            + 'event: test:done\r\ndata: {"status":"completed"}\r\n\r\n';
+        fetchMock.mockResolvedValueOnce(new Response(sse, {
+            status: 200, headers: { 'Content-Type': 'text/event-stream' }
+        }));
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'test_flow', arguments: { id: 'f1', component_id: 'c1' }
+        });
+
+        const text = firstText(result);
+        expect(text).toContain('"status": "completed"');
+        expect(text).toContain('"ok": true');
+    });
+
     it('assign_account PUTs to the auth component endpoint', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({}));
         const client = await connectedClient();

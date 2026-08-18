@@ -19,6 +19,7 @@
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "gen:guide": "node scripts/gen-guide.mjs",
+        "prepare": "node scripts/prepare.mjs",
         "dev": "tsx src/index.ts",
         "test": "vitest run",
         "test:watch": "vitest",

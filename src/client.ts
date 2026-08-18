@@ -24,6 +24,32 @@ export interface Gateway {
     tools: { type: string; function: GatewayToolFunction }[];
 }
 
+export interface FlowTestBody {
+    componentId: string;
+    inputData?: unknown;
+    payload?: unknown;
+    options?: Record<string, unknown>;
+}
+
+/** SSE events are separated by a blank line; servers may use LF or CRLF. */
+const SSE_BLOCK_SEPARATOR = /\r?\n\r?\n/;
+
+function parseSseBlock(block: string): { event: string; data: unknown } | undefined {
+    let event = 'message';
+    const dataLines: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+    }
+    if (!dataLines.length && event === 'message') return undefined; // Comment/heartbeat.
+    const raw = dataLines.join('\n');
+    try {
+        return { event, data: JSON.parse(raw) };
+    } catch {
+        return { event, data: raw };
+    }
+}
+
 /** Decode a JWT payload without verifying the signature (client-side expiry check only). */
 export function jwtExpiresAt(token: string): number | undefined {
     try {
@@ -196,10 +222,20 @@ export class AppmixerClient {
         });
     }
 
-    triggerComponent(flowId: string, componentId: string, body: unknown) {
+    /** Verify the current credentials against the tenant; throws ApiError 401 when rejected. */
+    getCurrentUser() {
+        return this.request<Record<string, unknown>>('/user');
+    }
+
+    triggerComponent(
+        flowId: string,
+        componentId: string,
+        options: { method?: string; body?: unknown; query?: Record<string, string> } = {}
+    ) {
+        const { method = 'POST', body, query } = options;
         return this.request(
             `/flows/${encodeURIComponent(flowId)}/components/${encodeURIComponent(componentId)}`,
-            { method: 'POST', body: body ?? {} });
+            { method, body: method === 'GET' ? undefined : (body ?? {}), query });
     }
 
     sendAppEvent(event: string, data: unknown) {
@@ -257,11 +293,28 @@ export class AppmixerClient {
 
     /**
      * Run a component test (POST /flows/:id/test) and collect the SSE result
-     * events until test:done / test:error or the timeout elapses.
+     * events until test:done / test:error or the timeout elapses. Shares the
+     * token lifecycle and error normalization of the regular request path.
      */
     async runFlowTest(
         flowId: string,
-        body: { componentId: string; inputData?: unknown; payload?: unknown; options?: Record<string, unknown> },
+        body: FlowTestBody,
+        overallTimeoutMs: number
+    ): Promise<{ event: string; data: unknown }[]> {
+        try {
+            return await this.streamFlowTest(flowId, body, overallTimeoutMs);
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 401 && this.canReauthenticate()) {
+                this.token = undefined;
+                return this.streamFlowTest(flowId, body, overallTimeoutMs);
+            }
+            throw err;
+        }
+    }
+
+    private async streamFlowTest(
+        flowId: string,
+        body: FlowTestBody,
         overallTimeoutMs: number
     ): Promise<{ event: string; data: unknown }[]> {
 
@@ -272,16 +325,23 @@ export class AppmixerClient {
         const events: { event: string; data: unknown }[] = [];
 
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'text/event-stream'
-                },
-                body: JSON.stringify(body),
-                signal: controller.signal
-            });
+            let response: Response;
+            try {
+                response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
+                });
+            } catch (err) {
+                throw controller.signal.aborted
+                    ? new ApiError(`Request timed out after ${overallTimeoutMs} ms`, undefined, 'POST', url)
+                    : new ApiError(`Network error: ${(err as Error).message}`, undefined, 'POST', url);
+            }
             if (!response.ok || !response.body) {
                 throw new ApiError(`${response.status} ${response.statusText}`,
                     response.status, 'POST', url, await safeJson(response));
@@ -290,43 +350,34 @@ export class AppmixerClient {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let done = false;
-            while (!done) {
-                const { value, done: streamDone } = await reader.read();
-                if (streamDone) break;
-                buffer += decoder.decode(value, { stream: true });
-                let separator;
-                while ((separator = buffer.indexOf('\n\n')) !== -1) {
-                    const block = buffer.slice(0, separator);
-                    buffer = buffer.slice(separator + 2);
-                    let eventName = 'message';
-                    const dataLines: string[] = [];
-                    for (const line of block.split('\n')) {
-                        if (line.startsWith('event:')) eventName = line.slice(6).trim();
-                        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-                    }
-                    if (!dataLines.length && eventName === 'message') continue;
-                    let data: unknown = dataLines.join('\n');
-                    try { data = JSON.parse(dataLines.join('\n')); } catch { /* keep text */ }
-                    events.push({ event: eventName, data });
-                    if (eventName === 'test:done' || eventName === 'test:error') {
-                        done = true;
-                        controller.abort(); // Stop the stream; we have the result.
+            let finished = false;
+            try {
+                while (!finished) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    let boundary;
+                    while (!finished && (boundary = SSE_BLOCK_SEPARATOR.exec(buffer)) !== null) {
+                        const block = buffer.slice(0, boundary.index);
+                        buffer = buffer.slice(boundary.index + boundary[0].length);
+                        const parsed = parseSseBlock(block);
+                        if (!parsed) continue;
+                        events.push(parsed);
+                        finished = parsed.event === 'test:done' || parsed.event === 'test:error';
                     }
                 }
-            }
-        } catch (err) {
-            // An abort after test:done/test:error is the expected exit path.
-            const finished = events.some(e => e.event === 'test:done' || e.event === 'test:error');
-            if (!finished) {
-                if (controller.signal.aborted) {
-                    events.push({
-                        event: 'client:timeout',
-                        data: `No test result within ${overallTimeoutMs} ms; collected ${events.length} events.`
-                    });
-                } else {
-                    throw err;
+            } catch (err) {
+                if (!controller.signal.aborted) {
+                    throw new ApiError(`Test stream failed: ${(err as Error).message}`,
+                        undefined, 'POST', url);
                 }
+                events.push({
+                    event: 'client:timeout',
+                    data: `No test result within ${overallTimeoutMs} ms; collected ${events.length} events.`
+                });
+            } finally {
+                // We stop reading as soon as the terminal event arrives.
+                await reader.cancel().catch(() => undefined);
             }
         } finally {
             clearTimeout(timer);

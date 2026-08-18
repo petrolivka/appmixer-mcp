@@ -55,7 +55,8 @@ Two auth modes (`MCP_AUTH_MODE`, auto-detected by default):
   `Authorization: Bearer <token>`. Multi-user; sessions are bound to the token.
   Example: `claude mcp add --transport http appmixer https://your-host/mcp --header "Authorization: Bearer <token>"`.
 
-HTTP-specific environment: `MCP_HTTP_PORT` (default 3000), `MCP_HTTP_HOST`
+HTTP-specific environment: `MCP_HTTP_PORT` (default 3000; falls back to
+`PORT` when unset, for platforms that inject it), `MCP_HTTP_HOST`
 (default 127.0.0.1; the Docker image listens on 0.0.0.0 — terminate TLS in a
 reverse proxy in front), `MCP_ALLOWED_ORIGINS` (comma-separated Origin
 allowlist for browser clients; empty = reject all browser origins),
@@ -95,7 +96,8 @@ that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)
 | `start_flow` | write | Start a flow. |
 | `stop_flow` | write | Stop a flow. |
 | `delete_flow` | destructive | Permanently delete a flow. |
-| `trigger_component` | write | POST a webhook payload to a trigger component of a running flow. |
+| `trigger_component` | write | Send a POST/PUT/PATCH/DELETE webhook request to a trigger component of a running flow. |
+| `read_component_trigger` | read | Send a GET request to a trigger component that listens on GET. |
 | `send_app_event` | write | Send a named App Event to the user's flows. |
 
 ### Flow authoring tools (`TOOLS=api`)

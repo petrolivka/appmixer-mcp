@@ -44,13 +44,18 @@ describe('appmixer MCP server', () => {
             'assign_account', 'create_flow', 'delete_flow', 'get_components',
             'get_flow', 'get_flow_accounts', 'get_flow_authoring_guide',
             'get_flow_logs', 'get_flow_status', 'get_flow_variables',
-            'list_accounts', 'list_apps', 'list_flows', 'send_app_event',
-            'start_flow', 'stop_flow', 'test_flow', 'trigger_component',
-            'update_flow', 'validate_flow'
+            'list_accounts', 'list_apps', 'list_flows', 'read_component_trigger',
+            'send_app_event', 'start_flow', 'stop_flow', 'test_flow',
+            'trigger_component', 'update_flow', 'validate_flow'
         ]);
         expect(byName.list_flows.annotations?.readOnlyHint).toBe(true);
         expect(byName.delete_flow.annotations?.destructiveHint).toBe(true);
         expect(byName.start_flow.annotations?.destructiveHint).toBe(false);
+        // Read and write webhook calls are separate tools; neither mixes safe
+        // and unsafe HTTP methods.
+        expect(byName.read_component_trigger.annotations?.readOnlyHint).toBe(true);
+        expect(byName.trigger_component.inputSchema.properties?.method)
+            .toMatchObject({ enum: ['POST', 'PUT', 'PATCH', 'DELETE'] });
         for (const tool of tools) {
             expect(tool.name.length).toBeLessThanOrEqual(64);
             expect(tool.annotations?.title || (tool as { title?: string }).title).toBeTruthy();
@@ -84,6 +89,36 @@ describe('appmixer MCP server', () => {
         expect(text).toContain('404');
         expect(text).toContain('Flow not found.');
         expect(text).toContain('Check that the ID is correct');
+    });
+
+    it('trigger_component honours non-POST webhook methods', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
+        const { client } = await connectedClient();
+
+        await client.callTool({
+            name: 'trigger_component',
+            arguments: { flow_id: 'f1', component_id: 'c1', method: 'PUT', body: { a: 1 } }
+        });
+
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toContain('/flows/f1/components/c1');
+        expect(init.method).toBe('PUT');
+        expect(JSON.parse(init.body)).toEqual({ a: 1 });
+    });
+
+    it('read_component_trigger sends a GET with query parameters and no body', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
+        const { client } = await connectedClient();
+
+        await client.callTool({
+            name: 'read_component_trigger',
+            arguments: { flow_id: 'f1', component_id: 'c1', query: { token: 'x' } }
+        });
+
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(init.method).toBe('GET');
+        expect(init.body).toBeUndefined();
+        expect(String(url)).toContain('token=x');
     });
 
     it('validates tool input before calling the API', async () => {
@@ -146,6 +181,43 @@ describe('appmixer MCP server', () => {
 
         await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
         const { tools } = await client.listTools();
-        expect(tools.length).toBe(20); // API + authoring tools only, no crash.
+        expect(tools.length).toBe(21); // API + authoring tools only, no crash.
+    });
+
+    it('re-registers a gateway tool whose schema changed under the same name', async () => {
+        const webhook = `${BASE_URL}/flows/flow-1/components/comp-1`;
+        const gatewayWith = (properties: Record<string, unknown>) => [{
+            flowId: 'flow-1', componentId: 'comp-1', webhook,
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'abc123_tool', description: 'A tool.',
+                    parameters: { type: 'object', properties }
+                }
+            }]
+        }];
+        fetchMock.mockResolvedValueOnce(jsonResponse(gatewayWith({ old: { type: 'string' } })));
+        const { client, app } = await connectedClient('api,mcpgateway');
+        await app.gatewayManager!.refresh();
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(gatewayWith({ renewed: { type: 'number' } })));
+        await app.gatewayManager!.refresh();
+
+        const { tools } = await client.listTools();
+        const tool = tools.find(t => t.name === 'abc123_tool');
+        expect(tool!.inputSchema.properties).toHaveProperty('renewed');
+        expect(tool!.inputSchema.properties).not.toHaveProperty('old');
+    });
+
+    it('disables gateway polling permanently when the tenant rejects the credentials', async () => {
+        fetchMock.mockResolvedValue(jsonResponse({ message: 'unauthorized' }, 401));
+        const { app } = await connectedClient('api,mcpgateway');
+
+        await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
+        const callsAfterFirst = fetchMock.mock.calls.length;
+
+        // A rejected credential is fatal: further refreshes must not hit the API.
+        await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
+        expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
     });
 });

@@ -140,18 +140,38 @@ export function registerApiTools(server: McpServer, client: AppmixerClient): voi
 
     server.registerTool('trigger_component', {
         title: 'Trigger Component',
-        description: 'Send an HTTP POST webhook request to a trigger component of a running flow. ' +
-            'Find the component ID with get_flow (include_descriptor=false lists components with their IDs).',
+        description: 'Send a webhook request that submits data to a trigger component of a running ' +
+            'flow, using POST (default), PUT, PATCH or DELETE — match the method the flow\'s webhook ' +
+            'trigger expects. Find the component ID with get_flow (include_descriptor=false lists ' +
+            'components with their IDs). For triggers that expect GET, use read_component_trigger.',
         inputSchema: {
             flow_id: FLOW_ID,
             component_id: z.string().min(1).describe('The ID of the component to trigger.'),
+            method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']).default('POST')
+                .describe('HTTP method the webhook trigger listens on.'),
             body: z.record(z.string(), z.unknown()).optional()
                 .describe('JSON body to send to the component.')
         },
         annotations: { destructiveHint: false, openWorldHint: true }
-    }, safeHandler(async ({ flow_id, component_id, body }) => {
-        const result = await client.triggerComponent(flow_id, component_id, body);
+    }, safeHandler(async ({ flow_id, component_id, method, body }) => {
+        const result = await client.triggerComponent(flow_id, component_id, { method, body });
         return textResult(result ?? 'Component triggered.');
+    }));
+
+    server.registerTool('read_component_trigger', {
+        title: 'Read From Component Trigger',
+        description: 'Send a GET request to a trigger component of a running flow, for webhook ' +
+            'triggers that listen on GET, and return the component\'s response.',
+        inputSchema: {
+            flow_id: FLOW_ID,
+            component_id: z.string().min(1).describe('The ID of the component to call.'),
+            query: z.record(z.string(), z.string()).optional()
+                .describe('Query string parameters to send with the request.')
+        },
+        annotations: { readOnlyHint: true, openWorldHint: true }
+    }, safeHandler(async ({ flow_id, component_id, query }) => {
+        const result = await client.triggerComponent(flow_id, component_id, { method: 'GET', query });
+        return textResult(result ?? 'Component called.');
     }));
 
     server.registerTool('send_app_event', {

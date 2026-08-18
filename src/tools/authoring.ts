@@ -276,9 +276,23 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         const errors = events
             .filter(e => e.event === 'component:error' || e.event === 'test:error')
             .map(e => e.data);
+
         const doneEvent = events.find(e => e.event === 'test:done');
+        const errorEvent = events.find(e => e.event === 'test:error');
+        let status: unknown;
+        if (doneEvent) {
+            status = (doneEvent.data as Record<string, unknown>).status;
+        } else if (errorEvent) {
+            // The run failed server-side; reporting this as a timeout would send
+            // the caller after the wrong fix.
+            status = 'error';
+        } else if (events.some(e => e.event === 'client:timeout')) {
+            status = 'timeout';
+        } else {
+            status = 'incomplete';
+        }
         return textResult({
-            status: doneEvent ? (doneEvent.data as Record<string, unknown>).status : 'timeout',
+            status,
             outputs,
             errors: errors.length ? errors : undefined,
             events: events.map(e => e.event)

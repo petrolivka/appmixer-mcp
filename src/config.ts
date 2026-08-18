@@ -35,9 +35,10 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
 
     const base = loadConfig(env, { requireCredentials: authMode === 'env' });
 
-    const port = Number(env.PORT || env.MCP_HTTP_PORT || 3000);
+    // Explicit configuration wins; PORT is the fallback platforms inject.
+    const port = Number(env.MCP_HTTP_PORT || env.PORT || 3000);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        throw new ConfigError(`Invalid port: ${env.PORT || env.MCP_HTTP_PORT}`);
+        throw new ConfigError(`Invalid port: ${env.MCP_HTTP_PORT || env.PORT}`);
     }
     const sessionIdleSeconds = Number(env.MCP_SESSION_IDLE_TIMEOUT || 4 * 3600);
     if (!Number.isFinite(sessionIdleSeconds) || sessionIdleSeconds < 60) {

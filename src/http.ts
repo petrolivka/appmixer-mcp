@@ -3,6 +3,7 @@ import express, { type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { HttpConfig } from './config.js';
+import { ApiError, describeError } from './errors.js';
 import { createAppmixerServer, type AppmixerMcpServer, VERSION } from './server.js';
 import type { Logger } from './tools/gateway.js';
 
@@ -130,6 +131,26 @@ export function createHttpApp(config: HttpConfig, log: Logger): HttpApp {
                 ? { ...config, accessToken: auth.token, username: undefined, password: undefined }
                 : config;
             const serverApp = createAppmixerServer(sessionConfig, log);
+
+            // Verify the credential with the tenant before building any session
+            // state: an unchecked token would otherwise buy an anonymous caller
+            // a full session, including its background gateway polling.
+            if (config.authMode === 'bearer') {
+                try {
+                    await serverApp.client.getCurrentUser();
+                } catch (err) {
+                    serverApp.stop();
+                    const status = err instanceof ApiError ? err.status : undefined;
+                    if (status === 401 || status === 403) {
+                        res.setHeader('WWW-Authenticate', 'Bearer realm="appmixer-mcp"');
+                        rpcError(res, 401, 'Appmixer rejected this access token. ' +
+                            'Provide a valid token for this tenant in the Authorization header.');
+                    } else {
+                        rpcError(res, 502, `Could not verify the token with Appmixer: ${describeError(err)}`);
+                    }
+                    return;
+                }
+            }
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: (sessionId) => {
@@ -147,6 +168,15 @@ export function createHttpApp(config: HttpConfig, log: Logger): HttpApp {
             await serverApp.start();
             await serverApp.server.connect(transport);
             await transport.handleRequest(req, res, req.body);
+
+            // If the SDK rejected the initialize request (bad Accept header,
+            // unsupported protocol version), onsessioninitialized never fired:
+            // the session is in no map, transport.onclose will not run, and the
+            // started gateway manager would keep its timers forever.
+            if (!transport.sessionId || !sessions.has(transport.sessionId)) {
+                serverApp.stop();
+                await transport.close().catch(() => undefined);
+            }
         })().catch(err => {
             log('Unhandled /mcp error.', err);
             if (!res.headersSent) rpcError(res, 500, 'Internal server error.');
