@@ -41,8 +41,16 @@
     },
     {
         "id": "each-loop",
-        "prompt": "Build an Appmixer flow: on app event \"batch\" (example data: {\"items\": [\"a\", \"b\"]}), iterate over the items array and for each item set a variable currentItem with the item value.",
-        "expectComponents": ["appevents.OnAppEvent", "controls.Each", "controls.SetVariable"]
+        "prompt": "Build an Appmixer flow: on app event \"batch\" (example data: {\"items\": [{\"sku\": \"X1\", \"qty\": 2}]}), iterate over the items array and for each item set a variable currentSku with that item's sku.",
+        "expectComponents": ["appevents.OnAppEvent", "controls.Each", "controls.SetVariable"],
+        "expectDescriptorIncludes": [".item.value.sku"]
+    },
+    {
+        "id": "fan-in-join",
+        "prompt": "Build an Appmixer flow: on app event \"route\" (example data: {\"level\": \"high\", \"note\": \"check this\"}), branch on whether level equals \"high\". Both branches must continue into one and the same final step, which sets a variable handled to the note value.",
+        "expectComponents": ["appevents.OnAppEvent", "controls.SetVariable"],
+        "expectAnyComponent": ["controls.Condition", "filters."],
+        "expectDescriptorIncludes": ["controls.Join"]
     },
     {
         "id": "contains-filter",

@@ -51,6 +51,12 @@ Rules:
 - Most actions have a single inPort named `in`, but **not all** — some components use different inPort names (e.g. salesforce CreateLead uses `lead`). The `source` (and `config.transform`) key must be the component's **real inPort name**.
 - The value per upstream UUID is an array of that component's **real output port names** (per schema also a plain string is accepted; the array form with `uniqueItems`, `minItems: 1` is the convention).
 - Fan-in: list multiple upstream UUIDs under the same inPort to receive from several components.
+- **Not every inPort accepts fan-in.** An inPort with `"maxConnections": 1` in the component
+  manifest takes exactly one incoming connection (in `appmixer.utils` this is
+  `controls.Each`, `controls.SetVariable`, `controls.MockValue` and `controls.Testing`).
+  To merge two branches into such a component, wire both into
+  `appmixer.utils.controls.Join` (inPort `in`, outPort `out`) and connect `Join` to it.
+  Check `maxConnections` on the target inPort before planning a fan-in.
 - Port names are exact: `greater` not `pass`, `weather` not `out`, `request` for WebhookTrigger, `response` for HTTP actions, `item`/`done` for Each.
 - The virtual **`error`** port: every component implicitly has an `error` output port (it is NOT listed in the component's outPorts / tool results). Wire to it like any port: `"source": { "in": { "<failing-uuid>": ["error"] } }` — see Error Handling.
 
@@ -136,12 +142,16 @@ Critical rules:
 - An **array** path cannot be dotted into directly; an **object** path only as-is when the field expects an object — otherwise reference the specific leaf.
 - Use only output variable paths confirmed by the discovery tools; never guess field names.
 - **The path root often includes a wrapper object — check it.** The single most common
-  mistake: `appmixer.utils.appevents.OnAppEvent` nests the event payload under `data`,
-  so with `eventDataExample` `{"msg": "hi"}` the correct path is
-  `$.<trigger-uuid>.out.data.msg` — NOT `$.<trigger-uuid>.out.msg`. Other components have
-  similar wrappers (e.g. HTTP actions expose `$.…​.response.body.…`). When in doubt, create
-  the flow first and call `get_flow_variables` — it returns the exact valid paths with all
-  leaf fields; then fill in the transforms.
+  mistake. Confirmed wrappers:
+  - `appmixer.utils.appevents.OnAppEvent` nests the event payload under `data`, so with
+    `eventDataExample` `{"msg": "hi"}` the path is `$.<trigger-uuid>.out.data.msg` —
+    NOT `$.<trigger-uuid>.out.msg`.
+  - `appmixer.utils.controls.Each` wraps each element of the list, so a list of
+    `{"sku": "X1"}` yields `$.<each-uuid>.item.value.sku`, not `$.<each-uuid>.item.sku`.
+  - HTTP actions expose the payload under `response`: `$.<uuid>.response.body.<field>`.
+
+  Treat every dynamic port this way: create the flow first and call `get_flow_variables`,
+  which returns the exact valid paths with all leaf fields, then fill in the transforms.
 
 ### 3d. Modifier functions
 
@@ -220,8 +230,10 @@ With `"onError": "errorPort"`, wire a handler to the failing component's `error`
 10. **Extra keys on the component descriptor** — `additionalProperties: false` rejects anything beyond the keys in section 1.
 11. **Wrong path root — "Input field … contains invalid variable"**: the referenced field
    is not at that position in the upstream output. Typically a missing wrapper object
-   (OnAppEvent: `$.uuid.out.data.field`, not `$.uuid.out.field`). Fix by calling
-   `get_flow_variables` and copying the exact `path` it reports.
+   (OnAppEvent: `$.uuid.out.data.field`, not `$.uuid.out.field`; Each: `$.uuid.item.value.field`).
+   Fix by calling `get_flow_variables` and copying the exact `path` it reports.
+12. **Fan-in into an inPort with `maxConnections: 1`** — the second connection is rejected.
+   Merge the branches through `appmixer.utils.controls.Join` first (see section 2).
 
 ## 7. Complete Minimal Example
 
@@ -285,6 +297,19 @@ Triggers: `appmixer.utils.controls.OnStart` (fires once on flow start, port `out
 Actions/control: `appmixer.utils.http.Get/Post/Put/Patch/Delete` (port `response`), `appmixer.utils.http.Response` (respond to a webhook), `appmixer.utils.controls.Condition`, `appmixer.utils.controls.Each` (ports `item`, `done`), `appmixer.utils.controls.SetVariable`, `appmixer.utils.storage.Set/Get`, filters like `appmixer.utils.filters.GreaterThan` (ports `greater`/`notGreater`) and `appmixer.utils.filters.Equal` (ports `equal`/`notEqual`), `appmixer.utils.email.SendEmail`.
 
 Filters only pass/block messages — downstream variable references should point back to the original data source component, not to the filter.
+
+Fan-in junction: `appmixer.utils.controls.Join` (inPort `in`, outPort `out`) merges branches
+before a component whose inPort is limited to one connection.
+
+### App events and chaining flows
+
+App events are **inbound only**: `appmixer.utils.appevents.OnAppEvent` receives them, and no
+component emits them — they are published from outside Appmixer (an application or the REST
+API). Do not build a flow that "sends an app event".
+
+To make one flow start another, give the second flow an `appmixer.utils.http.WebhookTrigger`
+and have the first flow call that trigger's webhook URL with `appmixer.utils.http.Post`. The
+trigger's webhook endpoint is public, so no credentials are needed for the call.
 
 ## 9. Authoring Workflow (MCP)
 
