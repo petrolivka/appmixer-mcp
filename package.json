@@ -19,6 +19,7 @@
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "gen:guide": "node scripts/gen-guide.mjs",
+        "build:mcpb": "node scripts/build-mcpb.mjs",
         "prepare": "node scripts/prepare.mjs",
         "dev": "tsx src/index.ts",
         "test": "vitest run",
@@ -48,6 +49,7 @@
     "devDependencies": {
         "@types/express": "^5.0.6",
         "@types/node": "^22.0.0",
+        "esbuild": "^0.28.2",
         "tsx": "^4.19.0",
         "typescript": "^5.7.0",
         "vitest": "^4.1.10"

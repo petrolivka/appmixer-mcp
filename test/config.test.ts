@@ -37,4 +37,28 @@ describe('loadConfig', () => {
         const config = loadConfig({ ...BASE, TOOLS: 'API' });
         expect(config.tools).toEqual(new Set(['api']));
     });
+
+    it('ignores unsubstituted MCPB placeholders', () => {
+        // An optional user_config field left blank can reach us as the literal
+        // "${user_config.x}" placeholder; it must not be taken for a value.
+        const config = loadConfig({
+            APPMIXER_BASE_URL: BASE.APPMIXER_BASE_URL,
+            APPMIXER_ACCESS_TOKEN: '${user_config.access_token}',
+            APPMIXER_USERNAME: 'user@example.com',
+            APPMIXER_PASSWORD: 'secret',
+            TOOLS: '${user_config.tools}'
+        });
+        expect(config.accessToken).toBeUndefined();
+        expect(config.username).toBe('user@example.com');
+        expect(config.tools).toEqual(new Set(['api', 'mcpgateway']));
+    });
+
+    it('still requires real credentials when every value is a placeholder', () => {
+        expect(() => loadConfig({
+            APPMIXER_BASE_URL: BASE.APPMIXER_BASE_URL,
+            APPMIXER_ACCESS_TOKEN: '${user_config.access_token}',
+            APPMIXER_USERNAME: '${user_config.username}',
+            APPMIXER_PASSWORD: '${user_config.password}'
+        })).toThrow(ConfigError);
+    });
 });

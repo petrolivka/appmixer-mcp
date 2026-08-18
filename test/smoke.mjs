@@ -4,9 +4,12 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+// MCP_SERVER_ENTRY lets the same smoke test exercise the MCPB bundle, which
+// must run standalone (no node_modules next to it).
+const entry = process.env.MCP_SERVER_ENTRY || 'dist/index.js';
 const transport = new StdioClientTransport({
     command: process.execPath,
-    args: ['dist/index.js'],
+    args: [entry],
     env: { ...process.env },
     stderr: 'inherit'
 });

@@ -56,12 +56,23 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
     };
 }
 
+/**
+ * MCPB hosts substitute `${user_config.*}` placeholders into the environment.
+ * An optional field the user left blank can arrive as the literal placeholder,
+ * which must be read as "not set" rather than as a credential.
+ */
+function envValue(raw: string | undefined, { trim = true } = {}): string | undefined {
+    const value = trim ? raw?.trim() : raw;
+    if (!value || /^\$\{[^}]*\}$/.test(value.trim())) return undefined;
+    return value;
+}
+
 export function loadConfig(
     env: NodeJS.ProcessEnv = process.env,
     options: { requireCredentials?: boolean } = {}
 ): Config {
 
-    const baseUrl = (env.APPMIXER_BASE_URL || '').trim().replace(/\/+$/, '');
+    const baseUrl = (envValue(env.APPMIXER_BASE_URL) || '').replace(/\/+$/, '');
     if (!baseUrl) {
         throw new ConfigError(
             'APPMIXER_BASE_URL is required. Example: https://api.YOUR_TENANT.appmixer.cloud');
@@ -75,9 +86,9 @@ export function loadConfig(
         throw new ConfigError(`APPMIXER_BASE_URL is not a valid URL: ${baseUrl}`);
     }
 
-    const accessToken = env.APPMIXER_ACCESS_TOKEN?.trim() || undefined;
-    const username = env.APPMIXER_USERNAME?.trim() || undefined;
-    const password = env.APPMIXER_PASSWORD || undefined;
+    const accessToken = envValue(env.APPMIXER_ACCESS_TOKEN);
+    const username = envValue(env.APPMIXER_USERNAME);
+    const password = envValue(env.APPMIXER_PASSWORD, { trim: false });
 
     if (options.requireCredentials !== false && !accessToken && !(username && password)) {
         throw new ConfigError(
@@ -85,7 +96,7 @@ export function loadConfig(
     }
 
     const tools = new Set(
-        (env.TOOLS || 'api,mcpgateway')
+        (envValue(env.TOOLS) || 'api,mcpgateway')
             .split(',')
             .map(t => t.trim().toLowerCase())
             .filter(Boolean)

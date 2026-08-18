@@ -38,6 +38,21 @@ claude mcp add appmixer npx appmixer-mcp \
   -e APPMIXER_ACCESS_TOKEN="..."
 ```
 
+## Desktop bundle (MCPB)
+
+For Claude Desktop users without Node.js, the server also ships as an `.mcpb`
+bundle: download it, double-click, and fill in the tenant URL and token in the
+install dialog (the token is stored in the OS keychain).
+
+```bash
+npm run build:mcpb     # -> dist/appmixer-mcp-<version>.mcpb
+```
+
+The bundle is the recommended install for Claude Desktop today, because
+Desktop's remote-connector flow requires OAuth, which the server does not
+implement yet (see [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)).
+For every other client, prefer `npx appmixer-mcp` or the remote server below.
+
 ## Remote server (streamable HTTP)
 
 Besides stdio, the same server runs as a remote MCP endpoint:
