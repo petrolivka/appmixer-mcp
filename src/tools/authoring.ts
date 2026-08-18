@@ -301,28 +301,44 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
 
     server.registerTool('get_component_options', {
         title: 'Get Component Options',
-        description: 'Resolve a component\'s dynamic options at runtime — the values behind ' +
-            'inspector fields and output ports whose manifest carries a `source` URL (channel ' +
-            'pickers, sheet lists, generated output variables). The component must already exist ' +
-            'in one of your flows: create the flow first, then resolve options, then fill the ' +
-            'values in via update_flow. Where the manifest\'s `source.data` contains pointer ' +
-            'strings like "properties/event", pass the actual property values in `properties`.',
+        description: 'Resolve a field\'s dynamic options at runtime — the values behind inspector ' +
+            'fields and output ports whose manifest declares a `source` URL (Slack channel ' +
+            'pickers, spreadsheet lists, generated output variables). Take `component_type` and ' +
+            '`out_port` from that source URL (it often points at a different, auxiliary ' +
+            'component), and pass the component that owns the field as `component_id` — it must ' +
+            'already exist in a flow and, for connected services, have an account assigned, ' +
+            'because the lookup runs with that component\'s credentials. Results are the ' +
+            'auxiliary component\'s raw output: sources that declare a `transform` are not ' +
+            'converted here, so pick the identifier the target field expects (Slack channels: ' +
+            '`id`). Pointer strings in `source.data` such as "properties/event" mean "send that ' +
+            'property\'s value".',
         inputSchema: {
             component_type: z.string().regex(COMPONENT_TYPE_PATTERN)
-                .describe('Full component type, e.g. "appmixer.utils.controls.Each".'),
+                .describe('Component type from the source URL, e.g. "appmixer.slack.list.ListChannels".'),
             component_id: z.string().min(1)
-                .describe('ID of an existing component of this type in one of your flows.'),
+                .describe('ID of the component that owns the field, in one of your flows.'),
             out_port: z.string().optional()
-                .describe('Output port name when resolving output-port options (the `outPort` query of the source URL).'),
+                .describe('Output port name from the source URL (its `outPort` query parameter).'),
             properties: z.record(z.string(), z.unknown()).optional()
-                .describe('Resolved property values the source expects, e.g. {"generateOutputPortOptions": true, "event": "my-event"}.'),
+                .describe('Property values the source expects, e.g. {"generateOutputPortOptions": true}.'),
             messages: z.record(z.string(), z.unknown()).optional()
-                .describe('Sample input messages keyed by inPort, e.g. {"in": {"list": [{"sku": "X1"}]}}.')
+                .describe('Input messages the source expects, keyed by inPort, e.g. {"in": {"types": "public_channel"}}.'),
+            limit: z.number().int().min(1).max(200).default(50)
+                .describe('Maximum number of options to return.')
         },
         annotations: { readOnlyHint: true, openWorldHint: true }
-    }, safeHandler(async ({ component_type, component_id, out_port, properties, messages }) => {
+    }, safeHandler(async ({ component_type, component_id, out_port, properties, messages, limit }) => {
         const options = await client.callComponentFunction(
             component_type, { componentId: component_id, properties, messages }, out_port);
+        if (Array.isArray(options)) {
+            return textResult({
+                count: options.length,
+                note: options.length > limit
+                    ? `Showing the first ${limit} of ${options.length}; raise limit to see more.`
+                    : undefined,
+                options: options.slice(0, limit)
+            });
+        }
         return textResult(options ?? []);
     }));
 

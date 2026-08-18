@@ -317,12 +317,44 @@ with `get_trigger_url` once the second flow exists.
 Some inspector fields and output ports do not list their values in the manifest — they carry a
 `source` URL and resolve at runtime (a Slack channel picker, a Google Sheet list, output
 variables generated from input data). Never guess such values (channel IDs, sheet IDs, dynamic
-field names). Resolve them with `get_component_options`: create the flow first so the component
-exists, then call the tool with the component's type, its ID, the `outPort` from the source URL
-(if any), and resolved property values — manifest `source.data` entries like
-`"event": "properties/event"` are pointers meaning "send this component property's value";
-`messages` carries sample inPort data when the spec asks for it. The tool returns
-`[{ label, value, schema? }]`; use `value` in transforms and inspector fields.
+field names). Resolve them with `get_component_options`.
+
+Read the field's `source` in the manifest: its `url` gives the component type and `outPort` to
+call — often an **auxiliary component**, not the one you are configuring. For example
+`appmixer.slack.list.SendChannelMessage`'s `channelId` field declares
+`"url": "/component/appmixer/slack/list/ListChannels?outPort=channels"`, so you call type
+`appmixer.slack.list.ListChannels` with `out_port: "channels"`, while `component_id` stays the
+SendChannelMessage component in your flow. `source.data` is a template: literal values are sent
+as they are, pointer strings such as `"event": "properties/event"` mean "send that property's
+value", and `messages` entries carry inPort data (`{"in": {"types": "public_channel"}}`).
+
+Two things to expect from the result:
+
+- Components of connected services run the lookup **with the owning component's account**, so
+  assign the account first (`assign_account`) or the call fails on authentication.
+- The output is the auxiliary component's raw data. When the manifest's `source` declares a
+  `transform`, that conversion happens in the designer, not here — so pick the identifier the
+  target field expects yourself (for Slack channels, `id`; `name` is only the label).
+
+### Components that need a connected account
+
+A component whose manifest declares `auth` (every connected service: Slack, Google, HubSpot…)
+must have one of the user's accounts bound to it. The binding lives outside the descriptor —
+`config.auth` in the flow JSON does not create it, and the validator looks the account up by
+component ID in a separate store. Binding also cannot be done up front: the component has to
+exist in a saved flow first, otherwise the call fails with "Component not found in any of your
+flows".
+
+So the first validation of such a flow **always** reports
+`{"keyword": "missingAccount", "message": "Not authenticated"}`. That is expected, not a
+descriptor mistake — do not rewrite the flow to chase it. The order that works:
+
+1. `list_accounts` — pick the account for the service (if the user has none, they must connect
+   it in Appmixer first; it cannot be done through these tools).
+2. `create_flow` — the "Not authenticated" error on this first pass is normal.
+3. `assign_account` — bind the account to each component that needs one.
+4. `get_component_options` — only now do account-backed lookups (channel lists, sheet lists) work.
+5. `update_flow` with the resolved values, then `validate_flow` — now it comes back clean.
 
 ## 9. Authoring Workflow (MCP)
 
@@ -333,6 +365,6 @@ exists, then call the tool with the component's type, its ID, the `outPort` from
    `variable` path exactly matches a reported path (watch for wrapper objects like
    OnAppEvent's `data`). This catches the most common validation failure before it happens.
    For fields backed by a `source` URL, resolve real values with `get_component_options`.
-5. **Validate** — call `validate_flow`; fix every reported error (wrong port names, missing required fields, bad variable paths) and re-validate until clean.
+5. **Validate** — call `validate_flow`; fix every reported error (wrong port names, missing required fields, bad variable paths) and re-validate until clean. For components of connected services, expect one "Not authenticated" round: bind accounts with `assign_account` as described in section 8 instead of editing the descriptor.
 6. **Dry-run** (optional but recommended) — `test_flow` with sample input on the first action verifies the transforms end to end without starting the flow.
 7. **Start** — call `start_flow`. If start fails with a transformation error, re-check inPort key names and transform structure against section 6.

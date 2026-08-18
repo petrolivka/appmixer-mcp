@@ -59,6 +59,14 @@
         "expectAnyComponent": ["controls.Condition", "filters."]
     },
     {
+        "id": "slack-connector",
+        "prompt": "Build an Appmixer flow: on app event \"notify\" (example data: {\"text\": \"deploy finished\"}), post that text to my Slack channel named \"new-channel\". Use my connected Slack account.",
+        "expectComponents": ["appevents.OnAppEvent", "slack.list.SendChannelMessage"],
+        "expectDescriptorIncludes": ["C09BF6M2XPG"],
+        "expectAccountAssigned": true,
+        "accountBindingRequired": true
+    },
+    {
         "id": "multi-placeholder",
         "prompt": "Build an Appmixer flow: on app event \"weather\" (example data: {\"temp\": 21, \"city\": \"Prague\"}), set a variable report with the text \"Temperature in <city>: <temp> C\" where <city> and <temp> come from the event data.",
         "expectComponents": ["appevents.OnAppEvent", "controls.SetVariable"],

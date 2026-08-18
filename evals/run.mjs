@@ -165,6 +165,10 @@ async function scoreTask(task, marker, agent) {
     const { body: validation } = await api(`/flows/${flow.flowId}/validate`);
     score.valid = (validation?.errors || []).length === 0;
     if (!score.valid) score.notes.push(`Validation errors: ${JSON.stringify(validation.errors).slice(0, 300)}`);
+    // Connected-service components cannot validate before their account is bound,
+    // and binding needs the flow to exist — so one corrective round is structural
+    // rather than a modelling mistake (see the guide's account section).
+    score.bindingRoundExpected = Boolean(task.accountBindingRequired);
     score.validFirstTry = score.valid && !(agent.toolCalls.update_flow > 0);
 
     const missing = (task.expectComponents || []).filter(want => !types.some(t => t.includes(want)));
@@ -179,6 +183,14 @@ async function scoreTask(task, marker, agent) {
         if (!descriptorJson.includes(needle)) {
             score.extraChecksOk = false;
             score.notes.push(`Descriptor missing "${needle}".`);
+        }
+    }
+    if (task.expectAccountAssigned) {
+        const { body: bindings } = await api(`/accounts/flow/${flow.flowId}`);
+        const assigned = Object.values(bindings || {}).filter(Boolean);
+        if (!assigned.length) {
+            score.extraChecksOk = false;
+            score.notes.push('No component of the flow has an account assigned.');
         }
     }
     if (task.minPlaceholders) {
@@ -220,13 +232,18 @@ for (const task of tasks) {
     results.push(score);
 }
 
+// First-try validity is only meaningful where a single pass can succeed.
+const firstTryScope = results.filter(r => !r.bindingRoundExpected);
+
 const summary = {
     model: MODEL,
     date: new Date().toISOString(),
     tasks: results.length,
     passed: results.filter(r => r.pass).length,
     valid: results.filter(r => r.valid).length,
-    validFirstTry: results.filter(r => r.validFirstTry).length,
+    validFirstTry: firstTryScope.filter(r => r.validFirstTry).length,
+    firstTryScope: firstTryScope.length,
+    bindingRoundExpected: results.length - firstTryScope.length,
     avgToolCalls: Math.round(results.reduce((a, r) => a + r.totalToolCalls, 0) / results.length * 10) / 10,
     totalCostUsd: Math.round(results.reduce((a, r) => a + (r.costUsd || 0), 0) * 100) / 100,
     results
@@ -239,7 +256,10 @@ writeFileSync(outPath, JSON.stringify(summary, null, 2));
 console.log(`\n=== EVAL SUMMARY (${MODEL}) ===`);
 console.log(`pass:          ${summary.passed}/${summary.tasks}`);
 console.log(`valid:         ${summary.valid}/${summary.tasks}`);
-console.log(`valid 1st try: ${summary.validFirstTry}/${summary.tasks}`);
+console.log(`valid 1st try: ${summary.validFirstTry}/${summary.firstTryScope}` +
+    (summary.bindingRoundExpected
+        ? ` (${summary.bindingRoundExpected} excluded: account binding needs a second pass)`
+        : ''));
 console.log(`avg toolcalls: ${summary.avgToolCalls}`);
 console.log(`total cost:    $${summary.totalCostUsd}`);
 console.log(`saved:         ${outPath}`);

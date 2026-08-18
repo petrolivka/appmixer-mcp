@@ -253,6 +253,7 @@ describe('authoring tools', () => {
 
         expect(result.isError).toBeFalsy();
         expect(firstText(result)).toContain('value.sku');
+        expect(firstText(result)).toContain('"count": 1');
         const [url, init] = fetchMock.mock.calls[0];
         expect(String(url)).toContain('/component/appmixer/utils/controls/Each?outPort=item');
         expect(JSON.parse(init.body)).toEqual({

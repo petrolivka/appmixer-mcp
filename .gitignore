@@ -136,3 +136,11 @@ dist
 .pnp.*
 evals/results/
 build/
+
+# Local probing artifacts
+.token
+slack.json
+apps.json
+comps.json
+accounts.json
+flows.json
