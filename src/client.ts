@@ -289,9 +289,11 @@ export class AppmixerClient {
         return this.request<{ flowId: string }>('/flows', { method: 'POST', body });
     }
 
-    updateFlow(id: string, body: Record<string, unknown>) {
+    updateFlow(id: string, body: Record<string, unknown>, options: { force?: boolean } = {}) {
         return this.request<Record<string, unknown>>(`/flows/${encodeURIComponent(id)}`, {
-            method: 'PUT', body
+            method: 'PUT',
+            body,
+            query: options.force ? { forceUpdate: 'true' } : undefined
         });
     }
 

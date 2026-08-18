@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { FIXTURES } from './fixtures.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -141,7 +142,7 @@ function runAgent(prompt) {
 
 // ---- Scoring ----------------------------------------------------------------
 
-async function scoreTask(task, marker, agent) {
+async function scoreTask(task, marker, agent, fixture) {
     const score = {
         id: task.id, created: false, valid: false, validFirstTry: false,
         componentsOk: false, extraChecksOk: true, toolCalls: agent.toolCalls,
@@ -151,9 +152,17 @@ async function scoreTask(task, marker, agent) {
         flowId: null, notes: []
     };
 
-    const { body: flows } = await api(`/flows?pattern=${encodeURIComponent(marker)}&projection=-thumbnail`);
-    const flow = Array.isArray(flows) ? flows.find(f => f.name?.includes(marker)) : undefined;
-    if (!flow) { score.notes.push('Flow not found by marker name.'); return score; }
+    // Editing tasks score the fixture flow itself; authoring tasks look up the
+    // flow the agent was told to name with a unique marker.
+    let flow;
+    if (fixture) {
+        const { body: existing } = await api(`/flows/${fixture.flowId}`);
+        flow = existing ? { flowId: fixture.flowId, name: existing.name } : undefined;
+    } else {
+        const { body: flows } = await api(`/flows?pattern=${encodeURIComponent(marker)}&projection=-thumbnail`);
+        flow = Array.isArray(flows) ? flows.find(f => f.name?.includes(marker)) : undefined;
+    }
+    if (!flow) { score.notes.push('Flow not found.'); return score; }
     score.created = true;
     score.flowId = flow.flowId;
 
@@ -169,7 +178,10 @@ async function scoreTask(task, marker, agent) {
     // and binding needs the flow to exist — so one corrective round is structural
     // rather than a modelling mistake (see the guide's account section).
     score.bindingRoundExpected = Boolean(task.accountBindingRequired);
-    score.validFirstTry = score.valid && !(agent.toolCalls.update_flow > 0);
+    // "First try" = no corrective round. Editing a flow spends one update_flow on
+    // the change itself, so only a second one counts as a correction.
+    const updates = agent.toolCalls.update_flow || 0;
+    score.validFirstTry = score.valid && updates <= (fixture ? 1 : 0);
 
     const missing = (task.expectComponents || []).filter(want => !types.some(t => t.includes(want)));
     const anyOk = !task.expectAnyComponent
@@ -191,6 +203,23 @@ async function scoreTask(task, marker, agent) {
         if (!assigned.length) {
             score.extraChecksOk = false;
             score.notes.push('No component of the flow has an account assigned.');
+        }
+    }
+    if (fixture && task.expectPreservedComponentIds) {
+        const dropped = Object.keys(fixture.flow).filter(id => !descriptor[id]);
+        if (dropped.length) {
+            score.extraChecksOk = false;
+            score.notes.push(`Existing component IDs were not preserved: ${dropped.join(', ')}.`);
+        }
+    }
+    if (fixture && task.expectPreservedLayout) {
+        const moved = Object.entries(fixture.flow)
+            .filter(([id, original]) => descriptor[id]
+                && (descriptor[id].x !== original.x || descriptor[id].y !== original.y))
+            .map(([id]) => id);
+        if (moved.length) {
+            score.extraChecksOk = false;
+            score.notes.push(`Existing components were moved: ${moved.join(', ')}.`);
         }
     }
     if (task.minPlaceholders) {
@@ -215,13 +244,29 @@ const results = [];
 
 for (const task of tasks) {
     const marker = `eval-${task.id}-${Date.now()}`;
-    const prompt = `${task.prompt}\n\nUse the Appmixer MCP tools. Name the flow exactly "${marker}". ` +
-        'Create the flow and make sure it passes validation. Do NOT start the flow. ' +
-        'When finished, reply with only the flow ID.';
+
+    // Editing tasks start from a flow the runner creates; the agent is pointed
+    // at it by name and must change it in place.
+    let fixture;
+    if (task.fixture) {
+        const factory = FIXTURES[task.fixture];
+        if (!factory) throw new Error(`Unknown fixture "${task.fixture}" on task ${task.id}.`);
+        const built = factory();
+        const { body: created } = await api('/flows', 'POST', { name: marker, flow: built.flow });
+        fixture = { flowId: created.flowId, flow: built.flow, meta: built.meta };
+    }
+
+    const prompt = fixture
+        ? `${task.prompt}\n\nUse the Appmixer MCP tools. The flow is named exactly "${marker}" ` +
+          '— change that existing flow, do not create a new one. Make sure it passes validation ' +
+          'and do NOT start it. When finished, reply with only the flow ID.'
+        : `${task.prompt}\n\nUse the Appmixer MCP tools. Name the flow exactly "${marker}". ` +
+          'Create the flow and make sure it passes validation. Do NOT start the flow. ' +
+          'When finished, reply with only the flow ID.';
     process.stdout.write(`- ${task.id} ... `);
     const started = Date.now();
     const agent = await runAgent(prompt);
-    const score = await scoreTask(task, marker, agent);
+    const score = await scoreTask(task, marker, agent, fixture);
     score.trace = agent.trace;
     score.durationS = Math.round((Date.now() - started) / 1000);
     const pass = score.created && score.valid && score.componentsOk && score.extraChecksOk;

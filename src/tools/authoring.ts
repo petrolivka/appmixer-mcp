@@ -176,20 +176,25 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
     server.registerTool('update_flow', {
         title: 'Update Flow',
         description: 'Update an existing Appmixer flow (descriptor and/or name) and re-validate it. ' +
-            'The flow must be stopped. Send the COMPLETE flow descriptor — it replaces the stored one.',
+            'Send the COMPLETE flow descriptor — it replaces the stored one, so start from the ' +
+            'current descriptor (get_flow with include_descriptor=true), keep the existing ' +
+            'component IDs and the configuration of everything you were not asked to change. ' +
+            'A running flow is rejected unless force is set.',
         inputSchema: {
             id: z.string().min(1).describe('The ID of the flow to update.'),
             flow: FLOW_DESCRIPTOR.optional(),
             name: z.string().optional().describe('New flow name.'),
-            description: z.string().optional().describe('New flow description.')
+            description: z.string().optional().describe('New flow description.'),
+            force: z.boolean().default(false)
+                .describe('Update even while the flow is running. The change takes effect on the running flow; leave false to be told to stop it first.')
         },
         annotations: { destructiveHint: false, idempotentHint: true }
-    }, safeHandler(async ({ id, flow, name, description }) => {
+    }, safeHandler(async ({ id, flow, name, description, force }) => {
         const body: Record<string, unknown> = {};
         if (flow !== undefined) body.flow = flow;
         if (name !== undefined) body.name = name;
         if (description !== undefined) body.description = description;
-        await client.updateFlow(id, body);
+        await client.updateFlow(id, body, { force });
         const validation = await validationSummary(client, id);
         return textResult({ flowId: id, updated: true, validation });
     }));

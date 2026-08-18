@@ -67,6 +67,26 @@
         "accountBindingRequired": true
     },
     {
+        "id": "edit-append-step",
+        "prompt": "This existing flow stores the customer name from the \"edit-append\" app event. Add a second step after the existing one that stores the amount from the same event in a variable named orderAmount. Leave the rest of the flow as it is.",
+        "fixture": "twoStepFlow",
+        "expectComponents": ["appevents.OnAppEvent", "controls.SetVariable"],
+        "expectDescriptorIncludes": ["orderAmount", ".out.data.amount"],
+        "expectPreservedComponentIds": true,
+        "expectPreservedLayout": true,
+        "minComponents": 3
+    },
+    {
+        "id": "edit-repair-variable",
+        "prompt": "This existing flow does not pass validation. Find out why and fix it, changing as little as possible.",
+        "fixture": "brokenVariableFlow",
+        "expectComponents": ["appevents.OnAppEvent", "controls.SetVariable"],
+        "expectDescriptorIncludes": [".out.data.message"],
+        "expectPreservedComponentIds": true,
+        "expectPreservedLayout": true,
+        "minComponents": 2
+    },
+    {
         "id": "multi-placeholder",
         "prompt": "Build an Appmixer flow: on app event \"weather\" (example data: {\"temp\": 21, \"city\": \"Prague\"}), set a variable report with the text \"Temperature in <city>: <temp> C\" where <city> and <temp> come from the event data.",
         "expectComponents": ["appevents.OnAppEvent", "controls.SetVariable"],

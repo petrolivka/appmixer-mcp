@@ -356,7 +356,39 @@ descriptor mistake — do not rewrite the flow to chase it. The order that works
 4. `get_component_options` — only now do account-backed lookups (channel lists, sheet lists) work.
 5. `update_flow` with the resolved values, then `validate_flow` — now it comes back clean.
 
-## 9. Authoring Workflow (MCP)
+## 9. Editing an Existing Flow
+
+Editing is not authoring a new flow that happens to look similar. `update_flow` **replaces** the
+stored descriptor with what you send, so start from the current one — `get_flow` with
+`include_descriptor: true` — and change only what was asked.
+
+Rules that matter:
+
+- **Keep the existing component IDs.** They are the identity of a component: account bindings
+  (`assign_account`), every `$.<uuid>.…` variable reference and every `source` entry hang off
+  them. Minting new IDs for components that already exist silently drops their connected
+  accounts and breaks references. Generate fresh UUIDs only for components you are adding.
+- **Keep the layout of untouched components.** Leave their `x`/`y` as they are and place new
+  components relative to their neighbours (≥208 px to the right of the upstream one, rows
+  ≥128 px apart), so an edit does not rearrange the user's diagram.
+- **Keep configuration you were not asked to touch**, including `errorHandling` and properties
+  of unrelated components. Anything you omit from the descriptor is deleted.
+- **Rewire deliberately.** Inserting a step between A and B means changing B's `source` (and its
+  `config.transform`, which mirrors `source`) to point at the new component, not just appending
+  a component with no links.
+- **Re-point variables when data moves.** If a value now comes from the inserted component,
+  update the modifier's `variable` path; `get_flow_variables` reports the valid paths after the
+  change is saved.
+- **A running flow is rejected** with `Can't update a running flow` unless `update_flow` is
+  called with `force: true`. Prefer `stop_flow` → `update_flow` → `start_flow`; use `force` when
+  the user explicitly wants the running flow changed in place.
+- **Validate after every edit** and re-check with `get_flow` that the components you meant to
+  keep are still there.
+
+For a repair task ("this flow is failing"), read `get_flow_logs` first: it names the failing
+component and the message, which usually points straight at the property or variable to fix.
+
+## 10. Authoring Workflow (MCP)
 
 1. **Discover** — list available apps (`list_apps`) and inspect candidate components (`get_components`) to get exact component types, inPort/outPort names, config properties, input fields (and which are required), and output variables. Never guess any of these.
 2. **Build** — assemble the descriptor: one trigger with `"source": {}`, actions wired via `source`, transforms mirroring `source`, fresh UUIDs everywhere.
