@@ -64,6 +64,7 @@ export class AppmixerClient {
 
     private token?: string;
     private refreshPromise?: Promise<string>;
+    private componentNames = new Map<string, Set<string>>();
 
     constructor(private readonly config: Pick<Config, 'baseUrl' | 'accessToken' | 'username' | 'password'>) {
         this.token = config.accessToken;
@@ -279,6 +280,18 @@ export class AppmixerClient {
 
     getComponents(app: string) {
         return this.request<Record<string, unknown>[]>('/apps/components', { query: { app } });
+    }
+
+    /** Component type names of an app, cached for the lifetime of this client. */
+    async getComponentNames(app: string): Promise<Set<string>> {
+        const cached = this.componentNames.get(app);
+        if (cached) return cached;
+        const components = await this.getComponents(app);
+        const names = new Set(components
+            .map(component => component.name)
+            .filter((name): name is string => typeof name === 'string'));
+        this.componentNames.set(app, names);
+        return names;
     }
 
     getAccounts() {

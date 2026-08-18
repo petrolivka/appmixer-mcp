@@ -1,10 +1,58 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AppmixerClient } from '../client.js';
+import { describeError } from '../errors.js';
 import { safeHandler, textResult, truncate } from '../format.js';
 import { FLOW_AUTHORING_GUIDE } from '../guide.js';
 
 const COMPONENT_TYPE_PATTERN = /^\w+\.\w+\.\w+\.\w+$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type Descriptor = Record<string, Record<string, unknown>>;
+
+/**
+ * Replace component keys that are not UUIDs with freshly minted ones, rewriting
+ * every reference to them (source entries, `$.<id>.…` variable paths). Lets a
+ * caller use readable placeholders like "trigger" instead of generating UUIDs,
+ * which is a surprisingly common way for flow creation to fail. Existing UUID
+ * keys are left alone — on an edit they carry the component's identity,
+ * including its connected account.
+ */
+export function mintComponentIds(flow: Descriptor): { flow: Descriptor; minted: Record<string, string> } {
+    const minted: Record<string, string> = {};
+    for (const key of Object.keys(flow)) {
+        if (!UUID_PATTERN.test(key)) minted[key] = randomUUID();
+    }
+    if (Object.keys(minted).length === 0) return { flow, minted };
+
+    let json = JSON.stringify(flow);
+    for (const [placeholder, uuid] of Object.entries(minted)) {
+        // Match the ID only as a whole token — bounded by a quote or a dot, which
+        // is how IDs appear in the descriptor ("<id>" keys and $.<id>.field paths).
+        const escaped = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        json = json.replace(new RegExp(`(?<=["\\.])${escaped}(?=["\\.])`, 'g'), uuid);
+    }
+    return { flow: JSON.parse(json) as Descriptor, minted };
+}
+
+/** Component types in the descriptor that do not exist on this tenant. */
+async function unknownComponentTypes(client: AppmixerClient, flow: Descriptor): Promise<string[]> {
+    const types = new Set(Object.values(flow)
+        .map(component => component.type)
+        .filter((type): type is string => typeof type === 'string'));
+    const unknown: string[] = [];
+    for (const type of types) {
+        const app = type.split('.').slice(0, 2).join('.');
+        try {
+            const known = await client.getComponentNames(app);
+            if (!known.has(type)) unknown.push(type);
+        } catch {
+            // Cannot verify (API error, unknown app): let the platform decide.
+        }
+    }
+    return unknown;
+}
 
 /** Flow descriptor: flat map of component UUID -> component descriptor. */
 const FLOW_DESCRIPTOR = z.record(
@@ -57,7 +105,15 @@ async function validationSummary(client: AppmixerClient, flowId: string): Promis
         }
         return { valid: false, errors, hint: hints.join(' ') };
     } catch (err) {
-        return { valid: undefined, note: 'Validation could not be performed.', detail: String(err) };
+        // A validation call that fails is itself a problem — most often an
+        // unknown component type, which the platform accepts on write and then
+        // cannot validate. Report it as invalid rather than as a shrug.
+        return {
+            valid: false,
+            error: describeError(err),
+            hint: 'The flow could not be validated. Check that every component `type` exists ' +
+                '(get_components) — the platform stores unknown types but cannot validate them.'
+        };
     }
 }
 
@@ -159,8 +215,11 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         title: 'Create Flow',
         description: 'Create a new Appmixer flow from a flow descriptor JSON and validate it. ' +
             'Read get_flow_authoring_guide first and discover exact component types, ports and ' +
-            'fields with get_components. The flow is created stopped; fix any validation errors ' +
-            'with update_flow, then use start_flow.',
+            'fields with get_components. Component keys may be readable placeholders ("trigger", ' +
+            '"send_email") — real UUIDs are minted for them and every reference is rewritten, so ' +
+            'you never need to generate IDs yourself; the mapping comes back as `componentIds`. ' +
+            'The flow is created stopped; fix any validation errors with update_flow, then ' +
+            'use start_flow.',
         inputSchema: {
             name: z.string().min(1).describe('Human-readable flow name.'),
             flow: FLOW_DESCRIPTOR,
@@ -168,9 +227,22 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         },
         annotations: { destructiveHint: false }
     }, safeHandler(async ({ name, flow, description }) => {
-        const created = await client.createFlow({ name, flow, description });
+        const unknown = await unknownComponentTypes(client, flow as Descriptor);
+        if (unknown.length) {
+            return textResult({
+                error: `Unknown component types: ${unknown.join(', ')}.`,
+                hint: 'The platform stores unknown types but cannot run or validate them. ' +
+                    'Look the component up with get_components and use its exact `type`.'
+            });
+        }
+        const { flow: descriptor, minted } = mintComponentIds(flow as Descriptor);
+        const created = await client.createFlow({ name, flow: descriptor, description });
         const validation = await validationSummary(client, created.flowId);
-        return textResult({ flowId: created.flowId, validation });
+        return textResult({
+            flowId: created.flowId,
+            componentIds: Object.keys(minted).length ? minted : undefined,
+            validation
+        });
     }));
 
     server.registerTool('update_flow', {
@@ -191,12 +263,29 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         annotations: { destructiveHint: false, idempotentHint: true }
     }, safeHandler(async ({ id, flow, name, description, force }) => {
         const body: Record<string, unknown> = {};
-        if (flow !== undefined) body.flow = flow;
+        let minted: Record<string, string> = {};
+        if (flow !== undefined) {
+            const unknown = await unknownComponentTypes(client, flow as Descriptor);
+            if (unknown.length) {
+                return textResult({
+                    error: `Unknown component types: ${unknown.join(', ')}.`,
+                    hint: 'Look the component up with get_components and use its exact `type`.'
+                });
+            }
+            const result = mintComponentIds(flow as Descriptor);
+            minted = result.minted;
+            body.flow = result.flow;
+        }
         if (name !== undefined) body.name = name;
         if (description !== undefined) body.description = description;
         await client.updateFlow(id, body, { force });
         const validation = await validationSummary(client, id);
-        return textResult({ flowId: id, updated: true, validation });
+        return textResult({
+            flowId: id,
+            updated: true,
+            componentIds: Object.keys(minted).length ? minted : undefined,
+            validation
+        });
     }));
 
     server.registerTool('get_flow_variables', {

@@ -28,6 +28,14 @@ The component descriptor schema has `additionalProperties: false` — only these
 | `errorHandling` | optional | Object; see Error Handling. Never change/remove an existing one unless asked |
 | `manifest` | optional | Any (schema leaves it unconstrained) |
 
+**You do not have to generate the IDs yourself.** `create_flow` and `update_flow` accept
+readable placeholder keys (`"trigger"`, `"send_email"`) for components that do not exist yet:
+each one gets a freshly minted UUID and every reference to it — `source` entries and
+`$.<id>.…` variable paths — is rewritten to match. The response returns the mapping in
+`componentIds`. Keys that already are UUIDs are never re-minted, so editing an existing flow
+keeps component identity intact. Use placeholders consistently within one call: the same
+string everywhere for the same component.
+
 **Component IDs must be UUIDs** (e.g. `"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`, `crypto.randomUUID()`), never readable slugs like `"create-project"`. Readable/reused IDs break OAuth account connection: the engine resolves a component's required auth scopes by a **global** componentId lookup that ignores the flowId, so reused IDs bind to the wrong flow and the authorize URL ships with wrong/empty scopes. Never reuse an ID within a flow either.
 
 Component types follow `appmixer.<service>.<module>.<ComponentName>`, e.g. `appmixer.utils.controls.OnStart`, `appmixer.slack.messages.SendMessage`, `appmixer.utils.http.Post`. Never invent component type names — discover them via tools.

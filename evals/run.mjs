@@ -108,10 +108,12 @@ function runAgent(prompt) {
                 if (event.type === 'assistant') {
                     for (const block of event.message?.content || []) {
                         if (block.type === 'tool_use') {
+                            const isMcp = block.name.startsWith('mcp__appmixer__');
                             const name = block.name.replace(/^mcp__appmixer__/, '');
                             toolCalls[name] = (toolCalls[name] || 0) + 1;
                             const entry = {
                                 tool: name,
+                                isMcp,
                                 input: JSON.stringify(block.input).slice(0, 2000)
                             };
                             trace.push(entry);
@@ -147,6 +149,9 @@ async function scoreTask(task, marker, agent, fixture) {
         id: task.id, created: false, valid: false, validFirstTry: false,
         componentsOk: false, extraChecksOk: true, toolCalls: agent.toolCalls,
         totalToolCalls: Object.values(agent.toolCalls).reduce((a, b) => a + b, 0),
+        // Calls into this server, as opposed to the host's own tools (file
+        // search, sub-agents, shell). Only the former measures our tool surface.
+        mcpToolCalls: agent.trace.filter(entry => entry.isMcp).length,
         turns: agent.resultEvent?.num_turns,
         costUsd: agent.resultEvent?.total_cost_usd,
         flowId: null, notes: []
@@ -230,7 +235,14 @@ async function scoreTask(task, marker, agent, fixture) {
         }
     }
 
-    if (!KEEP) await api(`/flows/${flow.flowId}`, 'DELETE');
+    if (!KEEP) {
+        // An agent that retried may have left several flows behind under the
+        // same name; clean up all of them, not just the scored one.
+        const { body: leftovers } = await api(`/flows?pattern=${encodeURIComponent(marker)}&projection=-thumbnail`);
+        const ids = new Set([flow.flowId, ...(Array.isArray(leftovers) ? leftovers : [])
+            .filter(f => f.name?.includes(marker)).map(f => f.flowId)]);
+        for (const id of ids) await api(`/flows/${id}`, 'DELETE');
+    }
     return score;
 }
 
@@ -272,7 +284,7 @@ for (const task of tasks) {
     const pass = score.created && score.valid && score.componentsOk && score.extraChecksOk;
     score.pass = pass;
     console.log(`${pass ? 'PASS' : 'FAIL'} (valid=${score.valid}, firstTry=${score.validFirstTry}, ` +
-        `toolCalls=${score.totalToolCalls}, ${score.durationS}s${score.costUsd ? `, $${score.costUsd.toFixed(2)}` : ''})`);
+        `mcpCalls=${score.mcpToolCalls}/${score.totalToolCalls}, ${score.durationS}s${score.costUsd ? `, $${score.costUsd.toFixed(2)}` : ''})`);
     for (const note of score.notes) console.log(`    ! ${note}`);
     results.push(score);
 }
@@ -290,6 +302,7 @@ const summary = {
     firstTryScope: firstTryScope.length,
     bindingRoundExpected: results.length - firstTryScope.length,
     avgToolCalls: Math.round(results.reduce((a, r) => a + r.totalToolCalls, 0) / results.length * 10) / 10,
+    avgMcpToolCalls: Math.round(results.reduce((a, r) => a + r.mcpToolCalls, 0) / results.length * 10) / 10,
     totalCostUsd: Math.round(results.reduce((a, r) => a + (r.costUsd || 0), 0) * 100) / 100,
     results
 };
@@ -305,6 +318,6 @@ console.log(`valid 1st try: ${summary.validFirstTry}/${summary.firstTryScope}` +
     (summary.bindingRoundExpected
         ? ` (${summary.bindingRoundExpected} excluded: account binding needs a second pass)`
         : ''));
-console.log(`avg toolcalls: ${summary.avgToolCalls}`);
+console.log(`avg mcp calls: ${summary.avgMcpToolCalls} (of ${summary.avgToolCalls} total incl. host tools)`);
 console.log(`total cost:    $${summary.totalCostUsd}`);
 console.log(`saved:         ${outPath}`);

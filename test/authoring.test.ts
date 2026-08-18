@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createAppmixerServer } from '../src/server.js';
+import { mintComponentIds } from '../src/tools/authoring.js';
 import { loadConfig } from '../src/config.js';
 import { futureJwt, jsonResponse } from './helpers.js';
 
@@ -125,6 +126,93 @@ describe('authoring tools', () => {
         expect(text).toContain('"flowId": "new-flow"');
         expect(text).toContain('"valid": false');
         expect(text).toContain('Input field \\"to\\" is required.');
+    });
+
+    it('mints UUIDs for placeholder component keys and rewrites every reference', async () => {
+        const flow = {
+            trigger: { type: 'appmixer.utils.appevents.OnAppEvent', source: {} },
+            set_var: {
+                type: 'appmixer.utils.controls.SetVariable',
+                source: { in: { trigger: ['out'] } },
+                config: {
+                    transform: {
+                        in: {
+                            trigger: {
+                                out: {
+                                    type: 'json2new',
+                                    modifiers: { variables: { m1: { variable: '$.trigger.out.data.msg' } } },
+                                    lambda: { variables: { ADD: [{ text: '{{{m1}}}' }] } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        const { flow: minted, minted: map } = mintComponentIds(flow);
+
+        const [triggerId, setVarId] = [map.trigger, map.set_var];
+        expect(triggerId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(Object.keys(minted).sort()).toEqual([triggerId, setVarId].sort());
+        // References follow the rename: source keys and the variable path.
+        expect(minted[setVarId].source).toEqual({ in: { [triggerId]: ['out'] } });
+        expect(JSON.stringify(minted)).toContain(`$.${triggerId}.out.data.msg`);
+        expect(JSON.stringify(minted)).not.toContain('"trigger"');
+        // The modifier id is not a component key, so it stays untouched.
+        expect(JSON.stringify(minted)).toContain('{{{m1}}}');
+    });
+
+    it('leaves existing UUID component keys alone', async () => {
+        const id = '11111111-2222-4333-8444-555555555555';
+        const { flow, minted } = mintComponentIds({
+            [id]: { type: 'appmixer.utils.controls.SetVariable', source: {} }
+        });
+        expect(minted).toEqual({});
+        expect(Object.keys(flow)).toEqual([id]);
+    });
+
+    it('create_flow refuses component types that do not exist on the tenant', async () => {
+        fetchMock.mockResolvedValue(jsonResponse(MANIFESTS)); // /apps/components
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'create_flow',
+            arguments: {
+                name: 'Bogus',
+                flow: { trigger: { type: 'appmixer.system.trigger.OnAppEvent', source: {} } }
+            }
+        });
+
+        const text = firstText(result);
+        expect(text).toContain('Unknown component types');
+        expect(text).toContain('appmixer.system.trigger.OnAppEvent');
+        // Nothing was created.
+        expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    });
+
+    it('reports a failed validation call as invalid instead of shrugging', async () => {
+        fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+            if (String(url).includes('/apps/components')) return Promise.resolve(jsonResponse(MANIFESTS));
+            if (String(url).endsWith('/flows') && init?.method === 'POST') {
+                return Promise.resolve(jsonResponse({ flowId: 'f1' }));
+            }
+            return Promise.resolve(jsonResponse({ message: 'boom' }, 500)); // /validate
+        });
+        const client = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'create_flow',
+            arguments: {
+                name: 'Test',
+                flow: { trigger: { type: 'appmixer.utils.timers.Scheduler', source: {} } }
+            }
+        });
+
+        const text = firstText(result);
+        expect(text).toContain('"valid": false');
+        expect(text).toContain('500');
+        expect(text).toContain('every component `type` exists');
     });
 
     it('create_flow rejects descriptors with invalid component types before hitting the API', async () => {
