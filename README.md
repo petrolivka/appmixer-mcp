@@ -189,6 +189,14 @@ Run it before releases or after changing the authoring guide, tool descriptions
 or output formats — it is the regression test for the parts of this server that
 unit tests cannot cover.
 
+## Project documentation
+
+- [`docs/flow-authoring-guide.md`](docs/flow-authoring-guide.md) — the flow descriptor format (embedded in the server)
+- [`docs/mcptools-endpoints.md`](docs/mcptools-endpoints.md) — the MCP Gateway module's endpoints and known issues
+- [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md) — work that depends on the Appmixer platform team
+- [`docs/gaps-and-roadmap.md`](docs/gaps-and-roadmap.md) — honest self-assessment against MCP standards and the roadmap
+- [`CHANGELOG.md`](CHANGELOG.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md)
+
 ## License
 
 [MIT](LICENSE)
