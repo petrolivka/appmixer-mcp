@@ -17,8 +17,9 @@
         "node": ">=20"
     },
     "scripts": {
-        "build": "tsc -p tsconfig.json",
+        "build": "npm run gen:version && tsc -p tsconfig.json",
         "gen:guide": "node scripts/gen-guide.mjs",
+        "gen:version": "node scripts/gen-version.mjs",
         "build:mcpb": "node scripts/build-mcpb.mjs",
         "prepare": "node scripts/prepare.mjs",
         "dev": "tsx src/index.ts",

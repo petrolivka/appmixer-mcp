@@ -5,8 +5,9 @@ import { registerApiTools } from './tools/api.js';
 import { registerAuthoringTools } from './tools/authoring.js';
 import { GatewayManager, type Logger } from './tools/gateway.js';
 import { FLOW_AUTHORING_GUIDE } from './guide.js';
+import { VERSION } from './version.js';
 
-export const VERSION = '2.0.0';
+export { VERSION } from './version.js';
 
 const INSTRUCTIONS = `Tools for the Appmixer workflow-automation platform, operating on the
 authenticated user's tenant.

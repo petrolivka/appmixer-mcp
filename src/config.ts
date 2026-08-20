@@ -19,6 +19,10 @@ export interface HttpConfig extends Config {
     authMode: HttpAuthMode;
     /** Idle session lifetime in milliseconds. */
     sessionIdleMs: number;
+    /** Refuse new sessions above this many concurrent ones. */
+    maxSessions: number;
+    /** Session-creation attempts allowed per client address per minute (0 = unlimited). */
+    rateLimitPerMinute: number;
 }
 
 export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig {
@@ -45,6 +49,15 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
         throw new ConfigError('MCP_SESSION_IDLE_TIMEOUT must be at least 60 (seconds).');
     }
 
+    const maxSessions = Number(env.MCP_MAX_SESSIONS || 200);
+    if (!Number.isInteger(maxSessions) || maxSessions < 1) {
+        throw new ConfigError('MCP_MAX_SESSIONS must be a positive integer.');
+    }
+    const rateLimitPerMinute = Number(env.MCP_RATE_LIMIT_PER_MINUTE ?? 30);
+    if (!Number.isInteger(rateLimitPerMinute) || rateLimitPerMinute < 0) {
+        throw new ConfigError('MCP_RATE_LIMIT_PER_MINUTE must be 0 (unlimited) or a positive integer.');
+    }
+
     return {
         ...base,
         port,
@@ -52,7 +65,9 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
         allowedOrigins: (env.MCP_ALLOWED_ORIGINS || '')
             .split(',').map(origin => origin.trim().replace(/\/+$/, '')).filter(Boolean),
         authMode,
-        sessionIdleMs: sessionIdleSeconds * 1000
+        sessionIdleMs: sessionIdleSeconds * 1000,
+        maxSessions,
+        rateLimitPerMinute
     };
 }
 

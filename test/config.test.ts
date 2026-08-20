@@ -38,6 +38,14 @@ describe('loadConfig', () => {
         expect(config.tools).toEqual(new Set(['api']));
     });
 
+    it('keeps the reported version in step with package.json', async () => {
+        const [{ VERSION }, pkg] = await Promise.all([
+            import('../src/version.js'),
+            import('../package.json', { with: { type: 'json' } })
+        ]);
+        expect(VERSION).toBe((pkg.default as { version: string }).version);
+    });
+
     it('ignores unsubstituted MCPB placeholders', () => {
         // An optional user_config field left blank can reach us as the literal
         // "${user_config.x}" placeholder; it must not be taken for a value.

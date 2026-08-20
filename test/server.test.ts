@@ -128,6 +128,31 @@ describe('appmixer MCP server', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('propagates client cancellation to the upstream request', async () => {
+        let upstreamSignal: AbortSignal | undefined;
+        fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+            upstreamSignal = init.signal as AbortSignal;
+            // Never settles on its own: only the abort ends this call.
+            return new Promise((_resolve, reject) => {
+                init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+            });
+        });
+        const { client } = await connectedClient();
+
+        const controller = new AbortController();
+        const call = client.callTool({ name: 'list_flows', arguments: {} }, undefined, {
+            signal: controller.signal
+        });
+        await vi.waitFor(() => expect(upstreamSignal).toBeDefined());
+        expect(upstreamSignal!.aborted).toBe(false);
+
+        controller.abort();
+        await call.catch(() => undefined); // The client rejects its own request.
+        // The tool handler's signal reached the HTTP layer, so the upstream
+        // request was torn down instead of running to completion.
+        await vi.waitFor(() => expect(upstreamSignal!.aborted).toBe(true));
+    });
+
     it('registers gateway tools from the mcptools plugin and calls them via webhook', async () => {
         const webhook = `${BASE_URL}/flows/flow-1/components/comp-1`;
         fetchMock.mockImplementation((url: string, init?: RequestInit) => {

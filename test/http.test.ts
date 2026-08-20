@@ -150,6 +150,53 @@ describe('streamable HTTP transport', () => {
         }
     });
 
+    it('refuses new sessions above the configured capacity', async () => {
+        const { url, server, httpApp } = await startServer({
+            MCP_AUTH_MODE: 'bearer', MCP_MAX_SESSIONS: '1'
+        });
+        try {
+            const first = await connect(url, futureJwt());
+            await expect(connect(url, futureJwt(7200))).rejects.toThrow(/at capacity/);
+            await first.client.close();
+        } finally {
+            httpApp.close(); server.close();
+        }
+    });
+
+    it('rate limits session creation per client', async () => {
+        const { url, server, httpApp } = await startServer({
+            MCP_AUTH_MODE: 'bearer', MCP_RATE_LIMIT_PER_MINUTE: '1'
+        });
+        try {
+            const first = await connect(url, futureJwt());
+            await expect(connect(url, futureJwt(7200))).rejects.toThrow(/Too many session attempts/);
+            await first.client.close();
+        } finally {
+            httpApp.close(); server.close();
+        }
+    });
+
+    it('remembers a rejected token instead of asking the tenant again', async () => {
+        let userCalls = 0;
+        upstreamMock.mockImplementation((url: string) => {
+            if (String(url).endsWith('/user')) {
+                userCalls++;
+                return Promise.resolve(jsonResponse({ message: 'unauthorized' }, 401));
+            }
+            return Promise.resolve(jsonResponse([]));
+        });
+        const { url, server, httpApp } = await startServer({ MCP_AUTH_MODE: 'bearer' });
+        try {
+            const token = futureJwt();
+            await expect(connect(url, token)).rejects.toThrow(/rejected this access token/);
+            await expect(connect(url, token)).rejects.toThrow(/rejected this access token/);
+            // The second attempt was answered from the local cache.
+            expect(userCalls).toBe(1);
+        } finally {
+            httpApp.close(); server.close();
+        }
+    });
+
     it('exposes a health endpoint outside /mcp', async () => {
         const { url, server, httpApp } = await startServer({ MCP_AUTH_MODE: 'bearer' });
         try {

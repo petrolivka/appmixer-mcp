@@ -75,7 +75,10 @@ HTTP-specific environment: `MCP_HTTP_PORT` (default 3000; falls back to
 (default 127.0.0.1; the Docker image listens on 0.0.0.0 — terminate TLS in a
 reverse proxy in front), `MCP_ALLOWED_ORIGINS` (comma-separated Origin
 allowlist for browser clients; empty = reject all browser origins),
-`MCP_SESSION_IDLE_TIMEOUT` (seconds, default 14400). Health check: `GET /healthz`.
+`MCP_SESSION_IDLE_TIMEOUT` (seconds, default 14400), `MCP_MAX_SESSIONS`
+(default 200; further sessions get 429) and `MCP_RATE_LIMIT_PER_MINUTE`
+(session attempts per client address, default 30, 0 disables).
+Health check: `GET /healthz`.
 
 Note: claude.ai custom connectors require OAuth and cannot send bearer headers —
 that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md).

@@ -42,6 +42,19 @@ Complete rewrite in TypeScript on the current `@modelcontextprotocol/sdk`.
   and an LLM eval suite (`evals/`) scoring real agents on 14 flow-building
   tasks.
 
+### Hardening and release engineering
+
+- Client cancellation is honoured: a cancelled tool call aborts the upstream
+  Appmixer request instead of letting it run to completion.
+- The HTTP transport caps concurrent sessions (`MCP_MAX_SESSIONS`), rate
+  limits session creation per client (`MCP_RATE_LIMIT_PER_MINUTE`) and
+  remembers tokens the tenant just rejected, so an unauthenticated caller
+  cannot make the server relay traffic upstream.
+- The version reported over MCP is generated from `package.json`, so the two
+  cannot drift.
+- A release workflow publishes to npm with provenance on a version tag and
+  attaches the `.mcpb` bundle to the GitHub release.
+
 ### Fixed (relative to 1.x behaviour)
 
 - Errors are no longer swallowed: failures surface as actionable `isError`

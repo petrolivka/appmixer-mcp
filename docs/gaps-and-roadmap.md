@@ -12,12 +12,11 @@ The server is a genuinely solid MCP citizen where it counts: tool design,
 annotations, error quality, output discipline, auth handling and test coverage
 are at or above what the directory review demands, and the eval harness is
 something most published servers do not have at all. What separates it from a
-finished product is the **outer ring**: release engineering (nothing is
-published yet, no changelog, no release automation), a handful of protocol
-features we consciously skipped (structured output, progress, cancellation,
-prompts), and hardening for hostile traffic on the HTTP transport (session
-caps, rate limits). None of these are architectural — the core does not need
-to change.
+finished product is the **outer ring**: release engineering, a handful of
+protocol features we consciously skipped (structured output, progress,
+prompts), and hardening for hostile traffic on the HTTP transport. The P1
+section below closes the first and third of those; none of it was
+architectural — the core did not have to change.
 
 ## Scorecard
 
@@ -27,16 +26,23 @@ to change.
 | Error quality | **strong** | `ApiError` with status/method/url, actionable `isError` results, targeted hints (invalid variable → `get_flow_variables`) |
 | Output discipline | **strong** | pagination, projections, per-result caps, summary/detail modes |
 | Flow authoring | **strong** | guide (tool + resource), server-side validate loop, variables with leaf paths, dry-run, dynamic options, account binding, placeholder IDs |
-| Testing | **strong** | 59 unit tests, 4 live suites in CI, 14 eval tasks measured on two models (14/14 both) |
+| Testing | **strong** | 64 unit tests, 4 live suites in CI, 14 eval tasks measured on two models (14/14 both) |
 | Transports | **good** | stdio + streamable HTTP (sessions, env/bearer, Origin allowlist) + MCPB bundle; no SSE resumability, in-memory sessions only |
-| Protocol feature coverage | **fair** | tools + one resource; no structured output, progress, cancellation, prompts, logging notifications, elicitation |
-| HTTP hardening | **fair** | token verified before session, per-session token binding, 4 MB cap; no session count cap, no rate limiting |
-| Release engineering | **missing** | not on npm, no CHANGELOG (until now), no release workflow, no signed MCPB |
+| Protocol feature coverage | **fair** | tools + one resource + cancellation; no structured output, progress, prompts, logging notifications, elicitation |
+| HTTP hardening | **good** | token verified before session, per-session binding, 4 MB cap, session cap, per-client rate limit, rejected-token cache |
+| Release engineering | **good** | tagged release workflow (npm provenance + GitHub release with the bundle), CHANGELOG; bundle not signed yet, nothing published yet |
 | Open-source hygiene | **missing → fixed** | SECURITY.md and CONTRIBUTING.md added together with this document |
 
 ## Gaps and proposals
 
-### P1 — before the first public release
+### P1 — before the first public release — **done** (2026-08-20)
+
+Items 1–4 below are implemented on `feat/v2-production-hardening`: release
+workflow with tag/version check and npm provenance, generated version
+constant, session cap plus per-client rate limiting and a rejected-token
+cache, and cancellation threaded from the MCP layer to the HTTP client via a
+request-scoped store. What remains open is signing the bundle (needs a
+code-signing certificate) and the actual npm release.
 
 1. **Release automation.** Nothing ships today: v2 is not on npm and the
    `.mcpb` exists only as a local build. Proposal: a `release.yml` workflow —
@@ -111,9 +117,9 @@ to change.
 
 - **Gateway tools have no live test** until `appmixer.ai.mcptools` merges
   (connectors #1117); unit tests cover the manager. Tracked in phase 3b.
-- **The eval runner under-reports cost on a task timeout** (the `result`
-  event never arrives and the missing cost counts as zero. All runs so far
-  completed; worth a note-level fix, not a priority.
+- **The eval runner under-reports cost on a task timeout**: the `result`
+  event never arrives, so the missing cost counts as zero. Every run so far
+  completed, which makes this a note-level fix rather than a priority.
 - **`.mcpb` shasums differ between identical builds** (zip timestamps); we
   chose not to chase reproducible archives.
 - **claude.ai connectors cannot connect** until the OAuth bridge exists —

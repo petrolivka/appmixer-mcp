@@ -1,3 +1,4 @@
+import { withTimeout } from './cancellation.js';
 import { ApiError } from './errors.js';
 import type { Config } from './config.js';
 
@@ -128,19 +129,19 @@ export class AppmixerClient {
     }
 
     private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        // Aborts on the request timeout or when the MCP client cancels the call.
+        const { signal, done } = withTimeout(timeoutMs);
         try {
-            return await fetch(url, { ...init, signal: controller.signal });
+            return await fetch(url, { ...init, signal });
         } catch (err) {
-            if (controller.signal.aborted) {
-                throw new ApiError(`Request timed out after ${timeoutMs} ms`, undefined,
-                    init.method || 'GET', url);
+            if (signal.aborted) {
+                throw new ApiError(`Request aborted (timeout ${timeoutMs} ms or client cancellation)`,
+                    undefined, init.method || 'GET', url);
             }
             throw new ApiError(`Network error: ${(err as Error).message}`, undefined,
                 init.method || 'GET', url);
         } finally {
-            clearTimeout(timer);
+            done();
         }
     }
 
@@ -358,8 +359,8 @@ export class AppmixerClient {
 
         const token = await this.ensureToken();
         const url = `${this.config.baseUrl}/flows/${encodeURIComponent(flowId)}/test`;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), overallTimeoutMs);
+        const { signal: controllerSignal, done: clearTimeoutTimer } = withTimeout(overallTimeoutMs);
+        const controller = { signal: controllerSignal };
         const events: { event: string; data: unknown }[] = [];
 
         try {
@@ -418,7 +419,7 @@ export class AppmixerClient {
                 await reader.cancel().catch(() => undefined);
             }
         } finally {
-            clearTimeout(timer);
+            clearTimeoutTimer();
         }
         return events;
     }
