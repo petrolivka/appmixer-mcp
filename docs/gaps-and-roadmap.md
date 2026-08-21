@@ -2,8 +2,10 @@
 
 > As of 2026-08-20, against the MCP specification (2025-11-25), the Anthropic
 > directory review criteria, and common expectations for a production server.
-> This is a self-audit: it names what is genuinely good, what is missing, and
-> what we decided not to build. Platform-side blockers live in
+> This is a self-audit on two axes: how well the server plays the MCP role
+> (protocol, safety, release), and how much of the Appmixer platform it can
+> actually reach (API coverage). It names what is genuinely good, what is
+> missing, and what we decided not to build. Platform-side blockers live in
 > [`phase-3b-platform.md`](phase-3b-platform.md) and are not repeated here.
 
 ## Verdict in one paragraph
@@ -22,11 +24,12 @@ architectural — the core did not have to change.
 
 | Area | State | Notes |
 |---|---|---|
-| Tool design & annotations | **strong** | 23 tools, one per action, read/write split, `title` + `readOnlyHint`/`destructiveHint` everywhere, names ≤ 64 enforced |
+| Tool design & annotations | **strong** | 27 tools, one per action, read/write split, `title` + `readOnlyHint`/`destructiveHint` everywhere, names ≤ 64 enforced |
 | Error quality | **strong** | `ApiError` with status/method/url, actionable `isError` results, targeted hints (invalid variable → `get_flow_variables`) |
 | Output discipline | **strong** | pagination, projections, per-result caps, summary/detail modes |
+| Platform API coverage | **fair** | flows, components, accounts, logs, dead-letter queue; no data stores, flow versions, files or telemetry — see below |
 | Flow authoring | **strong** | guide (tool + resource), server-side validate loop, variables with leaf paths, dry-run, dynamic options, account binding, placeholder IDs |
-| Testing | **strong** | 64 unit tests, 4 live suites in CI, 14 eval tasks measured on two models (14/14 both) |
+| Testing | **strong** | 66 unit tests, 4 live suites in CI, 14 eval tasks measured on two models (14/14 both) |
 | Transports | **good** | stdio + streamable HTTP (sessions, env/bearer, Origin allowlist) + MCPB bundle; no SSE resumability, in-memory sessions only |
 | Protocol feature coverage | **fair** | tools + one resource + cancellation; no structured output, progress, prompts, logging notifications, elicitation |
 | HTTP hardening | **good** | token verified before session, per-session binding, 4 MB cap, session cap, per-client rate limit, rejected-token cache |
@@ -124,6 +127,85 @@ code-signing certificate) and the actual npm release.
   chose not to chase reproducible archives.
 - **claude.ai connectors cannot connect** until the OAuth bridge exists —
   the top item of phase 3b, not solvable in this repository.
+
+## API coverage
+
+Measured against the endpoint inventory in the Appmixer CLI's API layer
+(`appmixer-cli/src/api/*.js`): 32 modules, 214 method+path combinations. This
+server reaches about two dozen of them. The raw ratio is meaningless on its
+own — most of that surface is tenant administration that an end-user agent
+must never touch — so what follows is grouped by whether the gap matters.
+
+### Covered
+
+| Domain | What we use |
+|---|---|
+| Flows | list, read, create, update (with `forceUpdate`), delete, start/stop, validate, test-run, trigger components |
+| Components & apps | app list, component manifests, dynamic options (`/component/...`), trigger URL |
+| Authoring support | flow variables (`/variables/:id/fetch`) |
+| Accounts | list, per-flow bindings, assign to component |
+| Observability | logs, unprocessed messages (list/read/retry/delete) |
+| Events | app events |
+| Identity | `/user` (token verification) |
+| Gateway | mcptools gateways + SSE events |
+
+### Gaps that matter
+
+1. **Data stores** (`/stores`, `/store/*`, 15 endpoints). Flows read and write
+   stores constantly, and an agent can neither inspect nor seed them. It
+   cannot answer "what is in this store", cannot prepare fixture data for a
+   flow it just built, and `get_components` will happily point it at store
+   components whose `storeId` it then has to guess. **Highest-value gap.**
+   Proposal: `list_stores`, `get_store_records`, `set_store_record`,
+   `delete_store_record`, plus store creation.
+2. **Flow versions and drafts** (`/flows/:id/versions*`, 8 endpoints;
+   `/drafts/:id/publish`). We added editing without a safety net: an agent
+   rewrites a descriptor with no snapshot to fall back to. Proposal:
+   `list_flow_versions`, `create_flow_version` (before an edit),
+   `restore_flow_version`. Pairs naturally with the editing guidance.
+3. **Modifier catalogue** (`/modifiers`, `/modifiers/test`,
+   `/modifiers/transform`). The guide hardcodes a list of `g_*` functions,
+   which is exactly the kind of thing that silently goes stale. The platform
+   can list them, and `/modifiers/test` can evaluate a lambda before it is
+   embedded in a flow. Proposal: `list_modifiers`, `test_modifier`.
+4. **Flow clone** (`POST /flows/:id/clone`). "Copy this flow and change X" is
+   an obvious request that today forces a full descriptor round-trip.
+   Proposal: `clone_flow`.
+5. **Flow metadata on write.** `create_flow` and `update_flow` accept only
+   name, descriptor and description; the API also takes `customFields`
+   (used for filtering, and `list_flows` already supports `filter`),
+   `sharedWith`, `notes`, `stage` and `wizard`. Proposal: widen both tools.
+6. **Files** (`/files`, 8 endpoints). Components produce and consume files;
+   an agent debugging such a flow cannot list or read them. Proposal:
+   `list_files`, `get_file_metadata` (content only on request, size-capped).
+7. **Charts and telemetry** (`/charts`, `/telemetry`, 8 endpoints).
+   "How is this automation performing" is a fair question with no answer
+   today. Proposal: read-only `get_telemetry`, and chart listing.
+8. **Third-party account connection** (`/auth/ticket`,
+   `/auth/:service/auth-url/:ticket`, `/auth/status/:ticket`). Today the
+   guide simply tells the user to connect accounts in the UI. These
+   endpoints would let an agent hand the user a ready authorization link and
+   then wait for it. Genuinely useful, and the most security-sensitive item
+   here — it should be designed deliberately rather than added casually.
+
+### Deliberately out of scope
+
+Tenant administration and deployment surface, which an end-user agent has no
+business driving and which would widen the blast radius of a leaked token for
+no benefit: ACL (`/acl*`), quotas, system endpoints (`/system/*`, audits,
+drain, heapdump), service configuration, user and group management,
+connector upload/delete (`/components` writes), price lists, public files,
+listeners, backoffice config, automation-hub settings, and per-user service
+config. Some of these could make sense in a future admin-scoped profile — as
+a separate `TOOLS=admin` group with its own documentation — but not in the
+default tool surface.
+
+### Suggested order
+
+Data stores first (it blocks whole classes of flows), then versions and
+drafts (they make editing safe), then the modifier catalogue and clone (both
+small), then metadata, files and telemetry. Account connection last, after a
+deliberate security review.
 
 ## Directory readiness
 
