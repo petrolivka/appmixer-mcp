@@ -41,12 +41,15 @@ describe('appmixer MCP server', () => {
         const byName = Object.fromEntries(tools.map(tool => [tool.name, tool]));
 
         expect(Object.keys(byName).sort()).toEqual([
-            'assign_account', 'create_flow', 'delete_flow', 'delete_unprocessed_message',
-            'get_component_options', 'get_components', 'get_flow', 'get_flow_accounts',
-            'get_flow_authoring_guide', 'get_flow_logs', 'get_flow_status',
-            'get_flow_variables', 'get_trigger_url', 'get_unprocessed_message',
-            'list_accounts', 'list_apps', 'list_flows', 'list_unprocessed_messages',
-            'read_component_trigger', 'retry_unprocessed_message', 'send_app_event',
+            'assign_account', 'clone_flow', 'create_flow', 'create_flow_version',
+            'create_store', 'delete_flow', 'delete_store_record',
+            'delete_unprocessed_message', 'get_component_options', 'get_components',
+            'get_flow', 'get_flow_accounts', 'get_flow_authoring_guide', 'get_flow_logs',
+            'get_flow_status', 'get_flow_variables', 'get_store_records',
+            'get_trigger_url', 'get_unprocessed_message', 'list_accounts', 'list_apps',
+            'list_flow_versions', 'list_flows', 'list_modifiers', 'list_stores',
+            'list_unprocessed_messages', 'read_component_trigger', 'restore_flow_version',
+            'retry_unprocessed_message', 'send_app_event', 'set_store_record',
             'start_flow', 'stop_flow', 'test_flow', 'trigger_component', 'update_flow',
             'validate_flow'
         ]);
@@ -247,7 +250,7 @@ describe('appmixer MCP server', () => {
 
         await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
         const { tools } = await client.listTools();
-        expect(tools.length).toBe(27); // API + authoring tools only, no crash.
+        expect(tools.length).toBe(37); // API + authoring tools only, no crash.
     });
 
     it('re-registers a gateway tool whose schema changed under the same name', async () => {

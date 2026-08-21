@@ -171,7 +171,7 @@ For computed values, add functions to the modifier's `functions` array (applied 
 "functions": [{ "name": "g_addTimeSpan", "hashParams": { "days": { "value": 1 } } }]
 ```
 
-Common functions: `g_jsonPath`, `g_first`, `g_last`, `g_length`, `g_join`, `g_map`, `g_stringify`, `g_parse`, `g_replace`, `g_split`, `g_trim`, `g_formatDate`, `g_addTimeSpan`, `g_condition`, `g_now`, `g_uuid4`, `g_webhookUrl`.
+Common functions: `g_jsonPath`, `g_first`, `g_last`, `g_length`, `g_join`, `g_map`, `g_stringify`, `g_parse`, `g_replace`, `g_split`, `g_trim`, `g_formatDate`, `g_addTimeSpan`, `g_condition`, `g_now`, `g_uuid4`, `g_webhookUrl`. This list is only the common ones — call `list_modifiers` for the catalogue this tenant actually has (with descriptions and categories) rather than assuming a function exists.
 
 ### 3e. Inspector field value formats
 
@@ -310,6 +310,10 @@ Note: the transform mirrors the source (`in` → trigger UUID → `out`), the va
 
 Triggers: `appmixer.utils.controls.OnStart` (fires once on flow start, port `out`), `appmixer.utils.timers.Timer` (`interval` minutes, port `out`), `appmixer.utils.timers.Scheduler` (cron fields, port `out`), `appmixer.utils.http.WebhookTrigger` (port `request`: method, data, query, headers), `appmixer.utils.appevents.OnAppEvent` (port `out`; the event payload is nested under `data` — paths are `$.<uuid>.out.data.<field>` per the `eventDataExample` properties).
 
+Data stores: `appmixer.utils.storage.*` components read and write named stores. They need the
+store's ID, which `list_stores` reports — never guess it; `get_store_records` shows what is in
+a store and `set_store_record` can seed data a flow will read.
+
 Actions/control: `appmixer.utils.http.Get/Post/Put/Patch/Delete` (port `response`), `appmixer.utils.http.Response` (respond to a webhook), `appmixer.utils.controls.Condition`, `appmixer.utils.controls.Each` (ports `item`, `done`), `appmixer.utils.controls.SetVariable`, `appmixer.utils.storage.Set/Get`, filters like `appmixer.utils.filters.GreaterThan` (ports `greater`/`notGreater`) and `appmixer.utils.filters.Equal` (ports `equal`/`notEqual`), `appmixer.utils.email.SendEmail`.
 
 Filters only pass/block messages — downstream variable references should point back to the original data source component, not to the filter.
@@ -400,6 +404,9 @@ Rules that matter:
   the user explicitly wants the running flow changed in place.
 - **Validate after every edit** and re-check with `get_flow` that the components you meant to
   keep are still there.
+- **Snapshot before a risky edit.** `create_flow_version` stores the current state and
+  `restore_flow_version` brings it back; there is no undo otherwise. For a flow that is in
+  use, `clone_flow` and editing the copy is safer still.
 
 For a repair task ("this flow is failing"), read `get_flow_logs` first: it names the failing
 component and the message, which usually points straight at the property or variable to fix.

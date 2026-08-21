@@ -223,10 +223,13 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         inputSchema: {
             name: z.string().min(1).describe('Human-readable flow name.'),
             flow: FLOW_DESCRIPTOR,
-            description: z.string().optional().describe('Optional flow description.')
+            description: z.string().optional().describe('Optional flow description.'),
+            custom_fields: z.record(z.string(), z.unknown()).optional()
+                .describe('Custom metadata, e.g. {"category": "sales"}; list_flows can filter on these.'),
+            stage: z.string().optional().describe('Flow stage, e.g. "draft".')
         },
         annotations: { destructiveHint: false }
-    }, safeHandler(async ({ name, flow, description }) => {
+    }, safeHandler(async ({ name, flow, description, custom_fields, stage }) => {
         const unknown = await unknownComponentTypes(client, flow as Descriptor);
         if (unknown.length) {
             return textResult({
@@ -236,7 +239,11 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
             });
         }
         const { flow: descriptor, minted } = mintComponentIds(flow as Descriptor);
-        const created = await client.createFlow({ name, flow: descriptor, description });
+        const created = await client.createFlow({
+            name, flow: descriptor, description,
+            ...(custom_fields ? { customFields: custom_fields } : {}),
+            ...(stage ? { stage } : {})
+        });
         const validation = await validationSummary(client, created.flowId);
         return textResult({
             flowId: created.flowId,
@@ -257,11 +264,13 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
             flow: FLOW_DESCRIPTOR.optional(),
             name: z.string().optional().describe('New flow name.'),
             description: z.string().optional().describe('New flow description.'),
+            custom_fields: z.record(z.string(), z.unknown()).optional()
+                .describe('Custom metadata; replaces the stored object.'),
             force: z.boolean().default(false)
                 .describe('Update even while the flow is running. The change takes effect on the running flow; leave false to be told to stop it first.')
         },
         annotations: { destructiveHint: false, idempotentHint: true }
-    }, safeHandler(async ({ id, flow, name, description, force }) => {
+    }, safeHandler(async ({ id, flow, name, description, custom_fields, force }) => {
         const body: Record<string, unknown> = {};
         let minted: Record<string, string> = {};
         if (flow !== undefined) {
@@ -278,6 +287,7 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
         }
         if (name !== undefined) body.name = name;
         if (description !== undefined) body.description = description;
+        if (custom_fields !== undefined) body.customFields = custom_fields;
         await client.updateFlow(id, body, { force });
         const validation = await validationSummary(client, id);
         return textResult({

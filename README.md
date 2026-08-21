@@ -140,6 +140,20 @@ that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)
 | `get_flow_accounts` | read | Which components need a connected account and what is assigned. |
 | `assign_account` | write | Bind a connected account to a component. |
 
+### Data, versions and modifiers (`TOOLS=api`)
+
+| Tool | Kind | Description |
+|---|---|---|
+| `list_stores` / `create_store` | read / write | Data stores the flows read and write. |
+| `get_store_records` | read | Records of a store, with the total count. |
+| `set_store_record` | write | Create or overwrite one record (the value is stored verbatim). |
+| `delete_store_record` | destructive | Delete one record. |
+| `list_flow_versions` | read | Saved snapshots of a flow. |
+| `create_flow_version` | write | Snapshot the current state before a risky edit. |
+| `restore_flow_version` | destructive | Roll the flow back to a snapshot. |
+| `clone_flow` | write | Copy a flow, optionally carrying its accounts over. |
+| `list_modifiers` | read | The `g_*` modifier catalogue of this tenant, filterable. |
+
 The intended authoring loop: read the guide → discover components → `create_flow`
 → fix `validate_flow` errors via `update_flow` → check paths with
 `get_flow_variables` → dry-run with `test_flow` → `start_flow`.

@@ -269,6 +269,67 @@ export class AppmixerClient {
             { method: 'POST', body: data ?? {} });
     }
 
+    cloneFlow(id: string, body: Record<string, unknown> = {}) {
+        return this.request<{ flowId: string }>(`/flows/${encodeURIComponent(id)}/clone`,
+            { method: 'POST', body });
+    }
+
+    listFlowVersions(flowId: string, options: { limit?: number; offset?: number } = {}) {
+        return this.request<{ items?: Record<string, unknown>[]; totalCount?: number }>(
+            `/flows/${encodeURIComponent(flowId)}/versions`,
+            { query: { limit: options.limit, offset: options.offset } });
+    }
+
+    createFlowVersion(flowId: string, label?: string) {
+        return this.request<Record<string, unknown>>(
+            `/flows/${encodeURIComponent(flowId)}/versions`,
+            // 'manual' is the only type a user may create besides autosave.
+            { method: 'POST', body: label ? { type: 'manual', label } : { type: 'manual' } });
+    }
+
+    restoreFlowVersion(flowId: string, versionId: string) {
+        return this.request<Record<string, unknown>>(
+            `/flows/${encodeURIComponent(flowId)}/versions/${encodeURIComponent(versionId)}/restore`,
+            { method: 'POST' });
+    }
+
+    listStores() {
+        return this.request<{ storeId: string; name: string }[]>('/stores');
+    }
+
+    createStore(name: string) {
+        return this.request<{ storeId: string }>('/stores', { method: 'POST', body: { name } });
+    }
+
+    getStoreRecords(storeId: string, options: { limit?: number; offset?: number } = {}) {
+        return this.request<Record<string, unknown>[]>('/store', {
+            query: { storeId, limit: options.limit, offset: options.offset }
+        });
+    }
+
+    getStoreRecordCount(storeId: string) {
+        return this.request<{ count?: number }>('/store/count', { query: { storeId } });
+    }
+
+    /** The request body is stored as the record's value verbatim. */
+    setStoreRecord(storeId: string, key: string, value: Record<string, unknown>) {
+        return this.request<Record<string, unknown>>(
+            `/store/${encodeURIComponent(storeId)}/${encodeURIComponent(key)}`,
+            { method: 'POST', body: value });
+    }
+
+    deleteStoreRecord(storeId: string, key: string) {
+        return this.request(
+            `/store/${encodeURIComponent(storeId)}/${encodeURIComponent(key)}`, { method: 'DELETE' });
+    }
+
+    getModifiers() {
+        return this.request<{
+            categories?: Record<string, { label?: string }>;
+            modifiers?: Record<string, Record<string, unknown>>;
+        }>('/modifiers');
+    }
+
     getUnprocessedMessages(options: { flowId?: string; correlationId?: string; limit?: number; offset?: number } = {}) {
         return this.request<Record<string, unknown>[]>('/unprocessed-messages', {
             query: {

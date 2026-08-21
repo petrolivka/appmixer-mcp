@@ -3,6 +3,7 @@ import type { Config } from './config.js';
 import { AppmixerClient } from './client.js';
 import { registerApiTools } from './tools/api.js';
 import { registerAuthoringTools } from './tools/authoring.js';
+import { registerDataTools } from './tools/data.js';
 import { GatewayManager, type Logger } from './tools/gateway.js';
 import { FLOW_AUTHORING_GUIDE } from './guide.js';
 import { VERSION } from './version.js';
@@ -46,6 +47,7 @@ export function createAppmixerServer(config: Config, log: Logger): AppmixerMcpSe
     if (config.tools.has('api')) {
         registerApiTools(server, client);
         registerAuthoringTools(server, client);
+        registerDataTools(server, client);
         server.registerResource(
             'flow-authoring-guide',
             'appmixer://guides/flow-authoring',

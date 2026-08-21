@@ -43,6 +43,12 @@ Complete rewrite in TypeScript on the current `@modelcontextprotocol/sdk`.
   dead-letter queue where the platform's default per-component error handling
   ("Stop execution" / `onError: storeUnprocessed`) parks failed messages, so a
   failure can be inspected, fixed and replayed instead of being invisible.
+- Data stores (`list_stores`, `create_store`, `get_store_records`,
+  `set_store_record`, `delete_store_record`), flow version snapshots
+  (`list_flow_versions`, `create_flow_version`, `restore_flow_version`),
+  `clone_flow`, and `list_modifiers` for the tenant's `g_*` catalogue.
+- `create_flow` and `update_flow` accept `custom_fields` (which `list_flows`
+  can filter on) and `stage`.
 - Test harness: 59 unit tests, live smoke/e2e/golden suites wired into CI,
   and an LLM eval suite (`evals/`) scoring real agents on 14 flow-building
   tasks.

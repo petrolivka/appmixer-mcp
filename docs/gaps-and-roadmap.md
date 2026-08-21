@@ -24,10 +24,10 @@ architectural — the core did not have to change.
 
 | Area | State | Notes |
 |---|---|---|
-| Tool design & annotations | **strong** | 27 tools, one per action, read/write split, `title` + `readOnlyHint`/`destructiveHint` everywhere, names ≤ 64 enforced |
+| Tool design & annotations | **strong** | 37 tools, one per action, read/write split, `title` + `readOnlyHint`/`destructiveHint` everywhere, names ≤ 64 enforced |
 | Error quality | **strong** | `ApiError` with status/method/url, actionable `isError` results, targeted hints (invalid variable → `get_flow_variables`) |
 | Output discipline | **strong** | pagination, projections, per-result caps, summary/detail modes |
-| Platform API coverage | **fair** | flows, components, accounts, logs, dead-letter queue; no data stores, flow versions, files or telemetry — see below |
+| Platform API coverage | **good** | flows, components, accounts, logs, dead-letter queue, data stores, versions, modifiers; no files or telemetry — see below |
 | Flow authoring | **strong** | guide (tool + resource), server-side validate loop, variables with leaf paths, dry-run, dynamic options, account binding, placeholder IDs |
 | Testing | **strong** | 66 unit tests, 4 live suites in CI, 14 eval tasks measured on two models (14/14 both) |
 | Transports | **good** | stdio + streamable HTTP (sessions, env/bearer, Origin allowlist) + MCPB bundle; no SSE resumability, in-memory sessions only |
@@ -116,6 +116,21 @@ code-signing certificate) and the actual npm release.
     quickly. Proposal: Dependabot config for npm + actions with weekly
     cadence. Effort: trivial.
 
+### A trade-off worth watching: tool count
+
+The server now registers 37 tools. Every schema lands in the model's context
+on connect, and the usual advice is to move past one-tool-per-action somewhere
+around fifteen. We are well over that and it has not hurt: evals stay at 14/14
+on two models and tool calls per task went down, not up, as tools were added —
+because a specific tool beats an agent improvising against a generic one.
+
+The number is still worth watching. If it becomes a problem, the fix is not a
+generic `execute_action` tool (the directory review rejects those) but finer
+`TOOLS` groups, so a client can register only what it needs: `flows` for
+operating existing automations, `authoring` for building them, `data` for
+stores and versions, `mcpgateway` for flow-published tools. The plumbing for
+this already exists — `TOOLS` splits `api` from `mcpgateway` today.
+
 ### Known and accepted
 
 - **Gateway tools have no live test** until `appmixer.ai.mcptools` merges
@@ -148,6 +163,13 @@ must never touch — so what follows is grouped by whether the gap matters.
 | Events | app events |
 | Identity | `/user` (token verification) |
 | Gateway | mcptools gateways + SSE events |
+
+### Gaps that matter — 1 to 5 **closed** (2026-08-21)
+
+Data stores, flow versions and drafts, the modifier catalogue, flow clone and
+flow metadata on write are implemented; the descriptions below stay as the
+record of why each mattered. Files, telemetry and account connection remain
+open, in that order.
 
 ### Gaps that matter
 
