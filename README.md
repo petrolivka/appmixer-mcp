@@ -111,6 +111,10 @@ that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)
 | `get_flow` | read | Flow metadata + component list; optionally the full descriptor. |
 | `get_flow_status` | read | Runtime status of a flow. |
 | `get_flow_logs` | read | Execution logs, filterable with Lucene query syntax. |
+| `list_unprocessed_messages` | read | Messages parked by the default error handling (dead-letter queue). |
+| `get_unprocessed_message` | read | One parked message in full: the error and the input that failed. |
+| `retry_unprocessed_message` | write | Replay a parked message once the flow is fixed. |
+| `delete_unprocessed_message` | destructive | Discard a parked message. |
 | `start_flow` | write | Start a flow. |
 | `stop_flow` | write | Stop a flow. |
 | `delete_flow` | destructive | Permanently delete a flow. |

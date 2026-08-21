@@ -106,6 +106,101 @@ export function registerApiTools(server: McpServer, client: AppmixerClient): voi
         return textResult({ count: hits.length, logs: hits });
     }));
 
+    server.registerTool('list_unprocessed_messages', {
+        title: 'List Unprocessed Messages',
+        description: 'List messages that failed processing and were parked instead of being ' +
+            'dropped. This is where a component sends its failures under the default error ' +
+            'handling ("Stop execution" / onError: storeUnprocessed) — the flow keeps running ' +
+            'and the failed message waits here. Use it to find out what broke and, after the ' +
+            'flow is fixed, replay it with retry_unprocessed_message.',
+        inputSchema: {
+            flow_id: z.string().optional().describe('Only messages of this flow.'),
+            correlation_id: z.string().optional()
+                .describe('Only messages of one flow execution (see get_flow_logs).'),
+            limit: z.number().int().min(1).max(100).default(20),
+            offset: z.number().int().min(0).default(0)
+        },
+        annotations: { readOnlyHint: true }
+    }, safeHandler(async ({ flow_id, correlation_id, limit, offset }) => {
+        const messages = await client.getUnprocessedMessages({
+            flowId: flow_id, correlationId: correlation_id, limit, offset
+        });
+        const rows = messages.map(message => {
+            // `err` is a JSON string with message/code/name/stack; surface the
+            // useful part and keep the stack out of the listing.
+            let error: unknown = message.err;
+            if (typeof message.err === 'string') {
+                try {
+                    const parsed = JSON.parse(message.err) as Record<string, unknown>;
+                    error = { message: parsed.message, code: parsed.code, name: parsed.name };
+                } catch {
+                    error = truncate(message.err, 300);
+                }
+            }
+            return {
+                messageId: message.messageId,
+                flowId: message.flowId,
+                componentId: message.componentId,
+                correlationId: message.correlationId,
+                created: message.created,
+                target: message.target,
+                error
+            };
+        });
+        return textResult({
+            count: rows.length,
+            note: rows.length
+                ? 'Read one with get_unprocessed_message to see the input that failed.'
+                : undefined,
+            messages: rows
+        });
+    }));
+
+    server.registerTool('get_unprocessed_message', {
+        title: 'Get Unprocessed Message',
+        description: 'Read one parked message in full: `err` (message, code, name, stack) and ' +
+            '`messages`, the input the component received keyed by inPort — together they ' +
+            'usually explain why it failed.',
+        inputSchema: {
+            message_id: z.string().min(1).describe('The ID of the message (see list_unprocessed_messages).')
+        },
+        annotations: { readOnlyHint: true }
+    }, safeHandler(async ({ message_id }) => {
+        const message = await client.getUnprocessedMessage(message_id);
+        // `err` arrives as a JSON string; parse it so the caller does not have to.
+        if (typeof message.err === 'string') {
+            try {
+                message.err = JSON.parse(message.err);
+            } catch { /* leave the raw string */ }
+        }
+        return textResult(message);
+    }));
+
+    server.registerTool('retry_unprocessed_message', {
+        title: 'Retry Unprocessed Message',
+        description: 'Replay a parked message through its component. Fix the flow first — a ' +
+            'replay repeats the original input, so an unfixed cause fails again.',
+        inputSchema: {
+            message_id: z.string().min(1).describe('The ID of the message to replay.')
+        },
+        annotations: { destructiveHint: false, openWorldHint: true }
+    }, safeHandler(async ({ message_id }) => {
+        const result = await client.retryUnprocessedMessage(message_id);
+        return textResult(result ?? `Message ${message_id} queued for retry.`);
+    }));
+
+    server.registerTool('delete_unprocessed_message', {
+        title: 'Delete Unprocessed Message',
+        description: 'Discard a parked message without replaying it. This cannot be undone.',
+        inputSchema: {
+            message_id: z.string().min(1).describe('The ID of the message to discard.')
+        },
+        annotations: { destructiveHint: true }
+    }, safeHandler(async ({ message_id }) => {
+        await client.deleteUnprocessedMessage(message_id);
+        return textResult(`Message ${message_id} discarded.`);
+    }));
+
     server.registerTool('start_flow', {
         title: 'Start Flow',
         description: 'Start an Appmixer flow by ID. The flow must be valid and complete to start.',

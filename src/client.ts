@@ -269,6 +269,32 @@ export class AppmixerClient {
             { method: 'POST', body: data ?? {} });
     }
 
+    getUnprocessedMessages(options: { flowId?: string; correlationId?: string; limit?: number; offset?: number } = {}) {
+        return this.request<Record<string, unknown>[]>('/unprocessed-messages', {
+            query: {
+                flowId: options.flowId,
+                correlationId: options.correlationId,
+                limit: options.limit,
+                offset: options.offset
+            }
+        });
+    }
+
+    getUnprocessedMessage(messageId: string) {
+        return this.request<Record<string, unknown>>(
+            `/unprocessed-messages/${encodeURIComponent(messageId)}`);
+    }
+
+    retryUnprocessedMessage(messageId: string) {
+        return this.request(
+            `/unprocessed-messages/${encodeURIComponent(messageId)}/retry`, { method: 'POST' });
+    }
+
+    deleteUnprocessedMessage(messageId: string) {
+        return this.request(
+            `/unprocessed-messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });
+    }
+
     getLogs(flowId: string, options: { query?: string; size?: number } = {}) {
         return this.request<{ hits?: Record<string, unknown>[] }>('/logs', {
             query: { flowId, query: options.query, size: options.size }

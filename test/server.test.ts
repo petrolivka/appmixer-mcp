@@ -41,12 +41,14 @@ describe('appmixer MCP server', () => {
         const byName = Object.fromEntries(tools.map(tool => [tool.name, tool]));
 
         expect(Object.keys(byName).sort()).toEqual([
-            'assign_account', 'create_flow', 'delete_flow', 'get_component_options',
-            'get_components', 'get_flow', 'get_flow_accounts', 'get_flow_authoring_guide',
-            'get_flow_logs', 'get_flow_status', 'get_flow_variables', 'get_trigger_url',
-            'list_accounts', 'list_apps', 'list_flows', 'read_component_trigger',
-            'send_app_event', 'start_flow', 'stop_flow', 'test_flow',
-            'trigger_component', 'update_flow', 'validate_flow'
+            'assign_account', 'create_flow', 'delete_flow', 'delete_unprocessed_message',
+            'get_component_options', 'get_components', 'get_flow', 'get_flow_accounts',
+            'get_flow_authoring_guide', 'get_flow_logs', 'get_flow_status',
+            'get_flow_variables', 'get_trigger_url', 'get_unprocessed_message',
+            'list_accounts', 'list_apps', 'list_flows', 'list_unprocessed_messages',
+            'read_component_trigger', 'retry_unprocessed_message', 'send_app_event',
+            'start_flow', 'stop_flow', 'test_flow', 'trigger_component', 'update_flow',
+            'validate_flow'
         ]);
         expect(byName.list_flows.annotations?.readOnlyHint).toBe(true);
         expect(byName.delete_flow.annotations?.destructiveHint).toBe(true);
@@ -128,6 +130,45 @@ describe('appmixer MCP server', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('list_unprocessed_messages surfaces the parsed error without the stack', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse([{
+            messageId: 'm1', flowId: 'f1', componentId: 'c1',
+            correlationId: ['corr-1'], created: '2026-08-21T13:36:16.049Z', target: 'input-queue',
+            err: JSON.stringify({
+                message: 'getaddrinfo ENOTFOUND example.invalid',
+                code: 'APPMIXER_ERR_MAX_RETRY_COUNT_EXCEEDED',
+                name: 'MaximumRetryCountExceeded',
+                stack: 'MaximumRetryCountExceeded: getaddrinfo…'
+            }),
+            messages: { in: [{ properties: {}, content: {} }] }
+        }]));
+        const { client } = await connectedClient();
+
+        const result = await client.callTool({
+            name: 'list_unprocessed_messages', arguments: { flow_id: 'f1' }
+        });
+
+        const text = (result.content as { text: string }[])[0].text;
+        expect(text).toContain('"messageId": "m1"');
+        expect(text).toContain('ENOTFOUND example.invalid');
+        expect(text).toContain('MaximumRetryCountExceeded');
+        // Listings stay compact: no stack trace and no message payload, both of
+        // which belong in the detail call.
+        expect(text).not.toContain('stack');
+        expect(text).not.toContain('"properties"');
+    });
+
+    it('retry_unprocessed_message POSTs to the retry endpoint', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse({}));
+        const { client } = await connectedClient();
+
+        await client.callTool({ name: 'retry_unprocessed_message', arguments: { message_id: 'm1' } });
+
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toContain('/unprocessed-messages/m1/retry');
+        expect(init.method).toBe('POST');
+    });
+
     it('propagates client cancellation to the upstream request', async () => {
         let upstreamSignal: AbortSignal | undefined;
         fetchMock.mockImplementation((_url: string, init: RequestInit) => {
@@ -206,7 +247,7 @@ describe('appmixer MCP server', () => {
 
         await expect(app.gatewayManager!.refresh()).resolves.toBe(false);
         const { tools } = await client.listTools();
-        expect(tools.length).toBe(23); // API + authoring tools only, no crash.
+        expect(tools.length).toBe(27); // API + authoring tools only, no crash.
     });
 
     it('re-registers a gateway tool whose schema changed under the same name', async () => {

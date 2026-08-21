@@ -213,6 +213,14 @@ Optional `errorHandling` object — a **sibling** of `type`/`source`/`config`, N
 | `maxRetries` (integer ≥ 0) | Cap on retries (system max typically 5). Omit for system default |
 | `onError` (enum) | After retries exhausted (or immediately when `autoRetry: false`): `"errorPort"` (route to the virtual `error` port), `"stopFlow"`, or `"storeUnprocessed"` (default) |
 
+The Designer calls these the same thing in different words, so map the user's
+wording onto the enum: **Error port** → `errorPort`, **Stop flow** → `stopFlow`,
+**Stop execution** → `storeUnprocessed` (the default). "Stop execution" stops only
+that message: the flow keeps running, the failed message is parked in Unprocessed
+Messages, and everything else keeps flowing. Parked messages are reachable with
+`list_unprocessed_messages` / `get_unprocessed_message`, and once the flow is fixed
+`retry_unprocessed_message` replays them — so nothing is lost by the default.
+
 All fields optional; `{ "onError": "stopFlow" }` alone is valid. Schema is `additionalProperties: false` — no other keys.
 
 With `"onError": "errorPort"`, wire a handler to the failing component's `error` port. Data available there:
@@ -395,6 +403,9 @@ Rules that matter:
 
 For a repair task ("this flow is failing"), read `get_flow_logs` first: it names the failing
 component and the message, which usually points straight at the property or variable to fix.
+Check `list_unprocessed_messages` as well — under the default error handling the failures are
+parked there with the exact input that broke the component, and after the fix they can be
+replayed instead of being lost.
 
 ## 10. Authoring Workflow (MCP)
 

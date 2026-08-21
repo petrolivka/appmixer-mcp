@@ -38,6 +38,11 @@ Complete rewrite in TypeScript on the current `@modelcontextprotocol/sdk`.
 - `get_flow_status`; dynamic MCP Gateway tools now reconcile by definition
   fingerprint, back off exponentially, re-check a missing plugin every five
   minutes and disable themselves on rejected credentials.
+- Error-handling loop: `list_unprocessed_messages`, `get_unprocessed_message`,
+  `retry_unprocessed_message` and `delete_unprocessed_message` reach the
+  dead-letter queue where the platform's default per-component error handling
+  ("Stop execution" / `onError: storeUnprocessed`) parks failed messages, so a
+  failure can be inspected, fixed and replayed instead of being invisible.
 - Test harness: 59 unit tests, live smoke/e2e/golden suites wired into CI,
   and an LLM eval suite (`evals/`) scoring real agents on 14 flow-building
   tasks.
