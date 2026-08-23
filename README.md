@@ -212,6 +212,7 @@ unit tests cannot cover.
 
 ## Project documentation
 
+- [`docs/status.md`](docs/status.md) — where the work stands and what it is waiting on
 - [`docs/flow-authoring-guide.md`](docs/flow-authoring-guide.md) — the flow descriptor format (embedded in the server)
 - [`docs/mcptools-endpoints.md`](docs/mcptools-endpoints.md) — the MCP Gateway module's endpoints and known issues
 - [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md) — work that depends on the Appmixer platform team
