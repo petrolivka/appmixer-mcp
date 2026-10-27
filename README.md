@@ -236,6 +236,8 @@ git push --follow-tags origin main # the v* tag runs .github/workflows/release.y
 
 ## Project documentation
 
+Customer-facing documentation: <https://docs.appmixer.com/getting-started/appmixer-mcp-server>.
+
 - [`docs/status.md`](docs/status.md) — where the work stands and what it is waiting on
 - [`docs/flow-authoring-guide.md`](docs/flow-authoring-guide.md) — the flow descriptor format (embedded in the server)
 - [`docs/mcptools-endpoints.md`](docs/mcptools-endpoints.md) — the MCP Gateway module's endpoints and known issues

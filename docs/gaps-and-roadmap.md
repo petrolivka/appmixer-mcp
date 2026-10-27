@@ -243,7 +243,7 @@ deliberate security review.
 | Actionable errors, validated inputs | ✅ |
 | Reasonably sized responses | ✅ |
 | First-party API ownership | ✅ (Appmixer's own API) |
-| Public documentation | ⏳ docs PR #157, merges after the npm release |
+| Public documentation | ✅ [docs.appmixer.com/getting-started/appmixer-mcp-server](https://docs.appmixer.com/getting-started/appmixer-mcp-server) |
 | Test credentials for review | ⏳ to be prepared at submission |
 | MCPB open source | ✅ MIT |
 | Remote connector auth (OAuth) | ❌ blocked on phase 3b |

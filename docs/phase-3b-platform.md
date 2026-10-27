@@ -78,10 +78,9 @@ timeout returned as HTTP 200 (the polling route is gone entirely) and the fragil
 - the token is checked by a hand-rolled `jwt.verify` outside the auth pipeline.
 
 **Where it stands for us:** `TOOLS=mcpgateway` is covered by a live suite
-(`test/e2e-gateway.mjs`) that skips itself on a tenant without the module. It has not yet
-had a real run — the repository secrets still point at the `your-saas` test tenant, which
-does not have the module. Repointing them at the dev instance is three secret values and a
-user, and needs no change to `ci.yml`.
+(`test/e2e-gateway.mjs`) that skips itself on a tenant without the module. It has passed live
+against the dev instance since 2026-10-21. That run found one more defect: the module drops
+private components (such as `MockValue`) silently instead of reporting them.
 
 ## 5. Finer-grained ACL (nice to have)
 
@@ -107,6 +106,6 @@ The earlier order put tokens first, which was right while bearer mode was the on
 story. It is no longer: handing out 30-day JWTs is a reason not to publish widely, not a
 reason the connector cannot exist.
 
-The MCPB (desktop extension) route to claude.ai depends on none of this — it needs the npm
-release and docs PR #157, both inside our own control. See "Directory readiness" in
+The MCPB (desktop extension) route to claude.ai depends on none of this — the npm release
+and the public documentation it needed are both done. See "Directory readiness" in
 `docs/gaps-and-roadmap.md`.

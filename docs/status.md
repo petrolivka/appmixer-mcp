@@ -9,6 +9,10 @@
 > Updated 2026-10-19: v2.0.0 is published on npm. What is left is the
 > customer documentation, one live test that has never run, and the platform
 > work claude.ai needs.
+> Updated 2026-10-27: the customer documentation is live at
+> <https://docs.appmixer.com/getting-started/appmixer-mcp-server>
+> (docs#157 merged) and the gateway suite has had its first green live run.
+> What is left is the MCPB directory submission and the platform work.
 
 ## The short version
 
@@ -43,8 +47,8 @@ eval tasks scoring real agents — 14/14 on both Sonnet and Haiku.
 |---|---|---|
 | Code review and merge | [appmixer-mcp#5](https://github.com/Appmixer-ai/appmixer-mcp/pull/5) — **merged 2026-10-16** as `a02ab48` | done |
 | npm release of v2 | **published 2026-10-19** — `appmixer-mcp@2.0.0`, tag `v2.0.0`, `.mcpb` attached to the release | done |
-| Customer documentation | [appmixer-docs-gitbook#157](https://github.com/Appmixer-ai/appmixer-docs-gitbook/pull/157) — draft, base `6.5` | a reviewer; the release it was waiting for has happened, so the page needs checking against what shipped and taking out of draft |
-| MCP Gateway tools, live | [appmixer-connectors#1117](https://github.com/Appmixer-ai/appmixer-connectors/pull/1117) — **merged 2026-09-21** into `dev`; the module runs on `api-dev-automated-00001.dev.appmixer.ai` | the CI secrets being repointed at that instance (decided 2026-10-14); the lifecycle suite exists (`test/e2e-gateway.mjs`) and skips itself until then |
+| Customer documentation | [appmixer-docs-gitbook#157](https://github.com/Appmixer-ai/appmixer-docs-gitbook/pull/157) — **merged**, live at [docs.appmixer.com/getting-started/appmixer-mcp-server](https://docs.appmixer.com/getting-started/appmixer-mcp-server) | done |
+| MCP Gateway tools, live | [appmixer-connectors#1117](https://github.com/Appmixer-ai/appmixer-connectors/pull/1117) — **merged 2026-09-21** into `dev`; the module runs on `api-dev-automated-00001.dev.appmixer.ai` | done — `test/e2e-gateway.mjs` passed live in CI on 2026-10-21 (run 39558808082) |
 | claude.ai connector support | [`phase-3b-platform.md`](phase-3b-platform.md) | the platform team — hosting and the OAuth ticket flow are the only two gates; revocable tokens are debt, not a gate |
 
 The platform items have the longest lead time. Filing them as tickets now
@@ -127,22 +131,18 @@ against, so the findings there need re-checking against the final code:
 
 ## Picking it back up
 
-1. **Customer documentation.** docs#157 was written before the release and
-   has been in draft since; check it against what actually shipped (37 tools,
-   the three transports, the install command) before taking it out of draft
-   and asking for review. After it merges, the MCPB directory listing is
-   reachable — every other criterion in
-   [`gaps-and-roadmap.md`](gaps-and-roadmap.md) is already met, only test
-   credentials for the reviewer need preparing. That route to claude.ai waits
-   on nothing in core.
-2. **Test the gateway live** — possible today against
-   `api-dev-automated-00001.dev.appmixer.ai`. The lifecycle suite is written
-   (`test/e2e-gateway.mjs` builds a flow with an MCPGateway, starts it,
-   asserts the published tools and the `tools/list_changed` notification,
-   calls them, stops the flow and asserts retraction), but it has never had
-   a real run: it skips itself on a tenant without the module. Repoint the
-   CI secrets at the dev instance, run it, and bring
-   `docs/mcptools-endpoints.md` in line with the merged code.
+1. **MCPB directory submission.** The customer documentation is live
+   (docs#157 merged), so every criterion in
+   [`gaps-and-roadmap.md`](gaps-and-roadmap.md) is met except test
+   credentials for the reviewer. That route to claude.ai waits on nothing in
+   core.
+2. **Bring `docs/mcptools-endpoints.md` in line with the merged code.** The
+   gateway lifecycle suite (`test/e2e-gateway.mjs`) now passes live against
+   `api-dev-automated-00001.dev.appmixer.ai`. Its first run found that
+   `appmixer.utils.controls.MockValue` is a private component, so the
+   gateway silently drops it for users without the `private` scope; the
+   suite now picks a visible component, and the module bug is drafted but
+   not filed.
 3. **Then let usage steer.** The most useful input so far came from actually
    using the thing — a hand-written "order triage" brief exposed three gaps
    in one afternoon that no amount of desk review had found. Once the team
