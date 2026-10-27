@@ -17,6 +17,8 @@
 
 ## 1. OAuth bridge for claude.ai (blocks public connectors)
 
+**Filed as [appmixer-core#4911](https://github.com/Appmixer-ai/appmixer-core/issues/4911)** (2026-10-27).
+
 **Problem:** claude.ai connectors do not accept user-pasted bearer tokens — they require
 OAuth 2.0 (CIMD preferred, DCR as a fallback; callback `https://claude.ai/api/mcp/auth_callback`).
 We can add an OAuth authorization server to the MCP server (the SDK's `mcpAuthRouter`),
@@ -52,6 +54,8 @@ browser, and the connector is connected without copying a token by hand.
 password; an administrator can see issued tokens and invalidate them.
 
 ## 3. Official per-tenant hosting at `api.TENANT.appmixer.cloud/mcp`
+
+**Filed as [appmixer-core#4910](https://github.com/Appmixer-ai/appmixer-core/issues/4910)** (2026-10-27).
 
 **Problem:** today the remote server is self-hosted (Docker behind the customer's own
 reverse proxy). For customers we want the MCP endpoint to be part of the tenant deployment.

@@ -49,10 +49,11 @@ eval tasks scoring real agents — 14/14 on both Sonnet and Haiku.
 | npm release of v2 | **published 2026-10-19** — `appmixer-mcp@2.0.0`, tag `v2.0.0`, `.mcpb` attached to the release | done |
 | Customer documentation | [appmixer-docs-gitbook#157](https://github.com/Appmixer-ai/appmixer-docs-gitbook/pull/157) — **merged**, live at [docs.appmixer.com/getting-started/appmixer-mcp-server](https://docs.appmixer.com/getting-started/appmixer-mcp-server) | done |
 | MCP Gateway tools, live | [appmixer-connectors#1117](https://github.com/Appmixer-ai/appmixer-connectors/pull/1117) — **merged 2026-09-21** into `dev`; the module runs on `api-dev-automated-00001.dev.appmixer.ai` | done — `test/e2e-gateway.mjs` passed live in CI on 2026-10-21 (run 39558808082) |
-| claude.ai connector support | [`phase-3b-platform.md`](phase-3b-platform.md) | the platform team — hosting and the OAuth ticket flow are the only two gates; revocable tokens are debt, not a gate |
+| claude.ai connector support | filed 2026-10-27 as [appmixer-core#4910](https://github.com/Appmixer-ai/appmixer-core/issues/4910) (MCP endpoint on every tenant) and [appmixer-core#4911](https://github.com/Appmixer-ai/appmixer-core/issues/4911) (OAuth sign-in with the user's Appmixer identity); background in [`phase-3b-platform.md`](phase-3b-platform.md) | the platform team, which also decides how the endpoint is deployed; these two are the only gates, revocable tokens are debt, not a gate |
 
-The platform items have the longest lead time. Filing them as tickets now
-means they can run in parallel with everything else.
+The platform items have the longest lead time. The two gates are filed as
+tickets, so they can run in parallel with everything else; the other
+platform items (revocable tokens, ACL) are not filed yet.
 
 ### How a release is cut
 
