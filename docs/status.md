@@ -13,6 +13,45 @@
 > <https://docs.appmixer.com/getting-started/appmixer-mcp-server>
 > (docs#157 merged) and the gateway suite has had its first green live run.
 > What is left is the MCPB directory submission and the platform work.
+> Updated 2026-11-03: the team agreed on direction; see "Direction" below.
+
+## Direction (internal discussion, 2026-11-03)
+
+1. **Get into the claude.ai connector directory**: finish OAuth sign-in and
+   hosting on the tenant ([appmixer-core#4910](https://github.com/Appmixer-ai/appmixer-core/issues/4910),
+   [appmixer-core#4911](https://github.com/Appmixer-ai/appmixer-core/issues/4911)).
+2. **Look into building flow authoring on the Appmixer Copilot**: put a
+   proper API in front of the Copilot and have appmixer-mcp only consume it,
+   so authoring behaves the same from Studio and from MCP.
+3. **Goal for now: run the whole tenant from appmixer-mcp**, without the user
+   having to open Studio or the Backoffice.
+4. **Look into creating connectors from appmixer-mcp.** Today this is done
+   with appmixer-skills, following
+   <https://docs.appmixer.com/getting-started/connector-with-an-agent>.
+
+**Priority order** (set the same day): 3, then 2, then 4; point 1 runs on the
+platform team's side in parallel.
+
+**Core compatibility** (decided 2026-11-04): the minimum supported
+appmixer-core is **6.5**; older lines are not officially supported. No
+hand-kept compatibility matrix: the server reads the tenant's version from
+`GET /` (`version`, no auth needed) and detects what the tenant offers at
+runtime, hiding or clearly failing tools whose endpoint or module is missing,
+as the gateway tools already do on a 404. Tools that need a newer core carry
+a minimum version in code, and the README table is generated from it. Whether
+appmixer-mcp moves into core instead of a separate container is still open
+(the architect's call); runtime detection is needed either way, because local
+installs (`npx`, MCPB) connect to tenants of any version. The connectors
+modules (`appmixer.ai.mcptools`) are versioned separately and detected the
+same way. Every route the point-3 plan relies on (account connection via
+`/auth/ticket`, files, URL aliases, user OAuth configs, group context) is
+already in 6.5.0; only knowledge bases are newer (on core `dev`, unreleased).
+
+**Not pursued for now:** MCP as something our customers build for their own
+clients and users (Cyclr's MCP PaaS model). We do not see the added value in
+what Cyclr does. Background: the Cyclr research and the product framing docs
+on claude.ai (<https://claude.ai/artifact/RHFjj85srMfcymC4LYjwQr>,
+<https://claude.ai/artifact/4xLuqcJ3CxKvtgy98GY93z>).
 
 ## The short version
 
