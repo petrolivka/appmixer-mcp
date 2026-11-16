@@ -196,8 +196,8 @@ export function registerAuthoringTools(server: McpServer, client: AppmixerClient
     server.registerTool('list_accounts', {
         title: 'List Accounts',
         description: 'List third-party accounts (Slack, Google, …) connected by the authenticated ' +
-            'Appmixer user. Components of connected apps need an account; accounts are connected by ' +
-            'the user in the Appmixer UI, not through this server.',
+            'Appmixer user. Components of connected apps need an account; connect a new one with ' +
+            'connect_account.',
         inputSchema: {},
         annotations: { readOnlyHint: true }
     }, safeHandler(async () => {

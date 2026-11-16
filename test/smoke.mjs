@@ -28,5 +28,31 @@ const result = await client.callTool({ name: 'list_flows', arguments: { limit: 5
 if (result.isError) throw new Error(`list_flows failed: ${result.content[0].text}`);
 console.log('list_flows:', result.content[0].text.slice(0, 400));
 
+const text = r => r.content[0].text;
+
+const info = await client.callTool({ name: 'get_tenant_info', arguments: {} });
+if (info.isError) throw new Error(`get_tenant_info failed: ${text(info)}`);
+const tenant = JSON.parse(text(info));
+console.log(`get_tenant_info: core ${tenant.version}, supported: ${tenant.coreSupported}`);
+if (tenant.coreSupported !== true) throw new Error(`Unsupported or unknown core version: ${tenant.version}`);
+
+// Start an account connection without finishing it: proves the ticket and
+// auth-url routes answer as connect_account expects. Nothing is created; the
+// ticket expires on its own.
+const slack = await client.callTool({ name: 'get_components', arguments: { app: 'appmixer.slack' } });
+if (!slack.isError && text(slack).includes('appmixer.slack.')) {
+    const started = await client.callTool({ name: 'connect_account', arguments: { type: 'appmixer.slack' } });
+    if (started.isError) throw new Error(`connect_account failed: ${text(started)}`);
+    const { ticket, url, kind } = JSON.parse(text(started));
+    console.log(`connect_account: kind ${kind}, url host ${new URL(url).host}`);
+    const status = await client.callTool({ name: 'get_account_connection', arguments: { ticket, wait_seconds: 0 } });
+    if (status.isError) throw new Error(`get_account_connection failed: ${text(status)}`);
+    const { status: state } = JSON.parse(text(status));
+    if (state !== 'pending') throw new Error(`Expected a pending connection, got ${state}`);
+    console.log('get_account_connection: pending');
+} else {
+    console.log('connect_account: skipped, the tenant has no appmixer.slack');
+}
+
 await client.close();
 console.log('SMOKE OK');

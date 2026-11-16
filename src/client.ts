@@ -1,6 +1,7 @@
 import { withTimeout } from './cancellation.js';
 import { ApiError } from './errors.js';
 import type { Config } from './config.js';
+import type { TenantInfo } from './tenant.js';
 
 const TOKEN_EXPIRY_CLEARANCE_SECONDS = 60;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -23,6 +24,32 @@ export interface Gateway {
     componentId: string;
     webhook: string;
     tools: { type: string; function: GatewayToolFunction }[];
+}
+
+/**
+ * What `GET /auth/{authType}/auth-url/{ticket}` returns, by auth type:
+ * OAuth gives the provider's `authUrl`; API-key and password services give
+ * core's own form page as `authUrl` plus the field definitions in `inputs`;
+ * OAuth services that need data first (e.g. a subdomain) give a relative
+ * `dataUrl` to core's pre-auth form.
+ */
+export interface AuthUrlResult {
+    authUrl?: string;
+    dataUrl?: string;
+    inputs?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/** `GET /auth/status/{ticket}`: the poll status core keeps for a connection in progress. */
+export interface AuthStatus {
+    finished?: boolean;
+    error?: string | null;
+    accountId?: string;
+    service?: string;
+    serviceLabel?: string;
+    componentIds?: string[] | string | null;
+    flowId?: string | null;
+    [key: string]: unknown;
 }
 
 export interface FlowTestBody {
@@ -66,6 +93,7 @@ export class AppmixerClient {
     private token?: string;
     private refreshPromise?: Promise<string>;
     private componentNames = new Map<string, Set<string>>();
+    private tenantInfo?: Promise<TenantInfo>;
 
     constructor(private readonly config: Pick<Config, 'baseUrl' | 'accessToken' | 'username' | 'password'>) {
         this.token = config.accessToken;
@@ -192,6 +220,35 @@ export class AppmixerClient {
         } catch {
             return text as T;
         }
+    }
+
+    /**
+     * The tenant's core version and URLs from the unauthenticated root
+     * endpoint. Cached for the lifetime of the client; a failed read is not
+     * cached, so a later call retries.
+     */
+    getTenantInfo(): Promise<TenantInfo> {
+        if (!this.tenantInfo) {
+            const url = `${this.config.baseUrl}/`;
+            this.tenantInfo = (async () => {
+                const response = await this.fetchWithTimeout(url, { method: 'GET' }, DEFAULT_TIMEOUT_MS);
+                if (!response.ok) {
+                    throw new ApiError(`${response.status} ${response.statusText}`,
+                        response.status, 'GET', url, await safeJson(response));
+                }
+                const body = await response.json() as Record<string, unknown>;
+                const pick = (key: string) => typeof body[key] === 'string' ? body[key] as string : undefined;
+                return {
+                    name: pick('name'),
+                    version: pick('version'),
+                    tenantId: pick('tenantId'),
+                    studioUrl: pick('studioUrl'),
+                    integrationsUrl: pick('integrationsUrl')
+                };
+            })();
+            this.tenantInfo.catch(() => { this.tenantInfo = undefined; });
+        }
+        return this.tenantInfo;
     }
 
     // ---- Domain methods -------------------------------------------------
@@ -380,6 +437,27 @@ export class AppmixerClient {
             .filter((name): name is string => typeof name === 'string'));
         this.componentNames.set(app, names);
         return names;
+    }
+
+    /** Start connecting an account: a ticket that ties the auth URL to its poll status. */
+    createAuthTicket() {
+        return this.request<{ ticket: string }>('/auth/ticket', { method: 'POST' });
+    }
+
+    /**
+     * The URL the user opens to connect an account. `authType` is a component
+     * type or a prefix of one; core aggregates the OAuth scopes of the
+     * components it matches. `componentId` makes core assign the new account
+     * to that component when the connection completes.
+     */
+    getAuthUrl(authType: string, ticket: string, options: { componentId?: string; flowId?: string } = {}) {
+        return this.request<AuthUrlResult>(
+            `/auth/${encodeURIComponent(authType)}/auth-url/${encodeURIComponent(ticket)}`,
+            { query: { componentId: options.componentId, flowId: options.flowId } });
+    }
+
+    getAuthStatus(ticket: string) {
+        return this.request<AuthStatus>(`/auth/status/${encodeURIComponent(ticket)}`);
     }
 
     getAccounts() {

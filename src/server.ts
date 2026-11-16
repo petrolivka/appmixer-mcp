@@ -4,6 +4,8 @@ import { AppmixerClient } from './client.js';
 import { registerApiTools } from './tools/api.js';
 import { registerAuthoringTools } from './tools/authoring.js';
 import { registerDataTools } from './tools/data.js';
+import { registerAccountTools } from './tools/accounts.js';
+import { compatibilityWarning } from './tenant.js';
 import { GatewayManager, type Logger } from './tools/gateway.js';
 import { FLOW_AUTHORING_GUIDE } from './guide.js';
 import { VERSION } from './version.js';
@@ -24,7 +26,9 @@ authenticated user's tenant.
   creating the flow, get_flow_variables returns the exact variable paths and
   test_flow lets you dry-run a component with sample input before starting.
 - Components of third-party apps need a connected account: check with
-  get_flow_accounts, connect accounts in the Appmixer UI, bind with assign_account.
+  get_flow_accounts; if none fits, connect_account gives the user a URL to sign
+  in to the service (never ask for keys or passwords in chat), then
+  get_account_connection waits for the result; bind with assign_account.
 - Additional tools may appear or disappear at runtime: any flow that contains a
   running "MCP Gateway" component contributes its connected tools to this server.`;
 
@@ -48,6 +52,7 @@ export function createAppmixerServer(config: Config, log: Logger): AppmixerMcpSe
         registerApiTools(server, client);
         registerAuthoringTools(server, client);
         registerDataTools(server, client);
+        registerAccountTools(server, client);
         server.registerResource(
             'flow-authoring-guide',
             'appmixer://guides/flow-authoring',
@@ -72,6 +77,11 @@ export function createAppmixerServer(config: Config, log: Logger): AppmixerMcpSe
         client,
         gatewayManager,
         async start() {
+            // Warn early about a core older than supported; never block startup on it.
+            client.getTenantInfo().then(info => {
+                const warning = compatibilityWarning(info);
+                if (warning) log(warning);
+            }).catch(err => log('Could not read the tenant version from GET /.', err));
             // Load gateway tools before the client's first tools/list if possible,
             // but never fail server startup because of the gateway plugin.
             if (gatewayManager) {

@@ -369,10 +369,14 @@ So the first validation of such a flow **always** reports
 `{"keyword": "missingAccount", "message": "Not authenticated"}`. That is expected, not a
 descriptor mistake — do not rewrite the flow to chase it. The order that works:
 
-1. `list_accounts` — pick the account for the service (if the user has none, they must connect
-   it in Appmixer first; it cannot be done through these tools).
+1. `list_accounts` — pick the account for the service.
 2. `create_flow` — the "Not authenticated" error on this first pass is normal.
-3. `assign_account` — bind the account to each component that needs one.
+3. `assign_account` — bind the account to each component that needs one. If the user has no
+   account for the service, call `connect_account` with the component's type and
+   `component_id` instead: show the user the returned URL (the service's sign-in page, or a
+   short form for API keys), never ask for keys or passwords in the chat, then wait with
+   `get_account_connection`. The new account is assigned to that component automatically;
+   bind any other components of the same service with `assign_account`.
 4. `get_component_options` — only now do account-backed lookups (channel lists, sheet lists) work.
 5. `update_flow` with the resolved values, then `validate_flow` — now it comes back clean.
 

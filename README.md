@@ -141,6 +141,14 @@ that flow is tracked in [`docs/phase-3b-platform.md`](docs/phase-3b-platform.md)
 | `get_flow_accounts` | read | Which components need a connected account and what is assigned. |
 | `assign_account` | write | Bind a connected account to a component. |
 
+### Tenant and accounts (`TOOLS=api`)
+
+| Tool | Kind | Description |
+|---|---|---|
+| `get_tenant_info` | read | The tenant's appmixer-core version, tenant ID and Studio URL, and whether that core is supported (6.5 and newer). |
+| `connect_account` | write | Start connecting a third-party account: returns a URL the user opens (the service's sign-in page, or a short form for API keys) and a ticket. Keys and passwords never go through the chat. |
+| `get_account_connection` | read | Wait for a connection started by `connect_account`; returns the new account and the component it was assigned to. |
+
 ### Data, versions and modifiers (`TOOLS=api`)
 
 | Tool | Kind | Description |
